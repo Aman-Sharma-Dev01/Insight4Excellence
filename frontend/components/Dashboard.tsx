@@ -131,6 +131,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
   const refreshTimerRef = React.useRef<number | null>(null);
 
+  // Compute display sheets (includes Master Sheet if > 1 sheets connected)
+  const displaySheets = React.useMemo(() => {
+    if (availableSheets.length > 1) {
+      const masterSheet: SheetSource = {
+        id: 'master',
+        name: 'Master Sheet (All Connected Data)',
+        url: availableSheets.map(s => s.url as string), // Extract URLs as array
+        dateAdded: new Date().toISOString(),
+        isMaster: true
+      };
+      return [masterSheet, ...availableSheets];
+    }
+    return availableSheets;
+  }, [availableSheets]);
+
   // Levenshtein distance for similarity matching
   const levenshteinDistance = (str1: string, str2: string): number => {
     const m = str1.length;
@@ -302,7 +317,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       }
 
       // Check if any filter is applied
-      const hasFilters = Object.values(filterState).some(v => v.length > 0);
+      const hasFilters = Object.values(filterState).some((v: any) => v && v.length > 0);
       if (!hasFilters) {
         setFacultyAverages(null);
         return;
@@ -397,8 +412,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               for (const [canonical, mergeData] of Object.entries(categoryMerges)) {
                 // Ensure backward compatibility with old data structure which was just a string array
                 const isOldFormat = Array.isArray(mergeData);
-                const variants = isOldFormat ? (mergeData as unknown as string[]) : (mergeData as { variants: string[] }).variants || [];
-                if (selectedNames.some(name => variants.includes(name) || canonical === name)) {
+                const variants: string[] = isOldFormat ? (mergeData as any) : ((mergeData as any).variants || []);
+                if (selectedNames.some((name: string) => variants.includes(name) || canonical === name)) {
                   canonicalName = canonical;
                   break;
                 }
@@ -522,7 +537,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     if (!mergeCanonicalName || mergeSelectedNames.length < 2 || !activeSheet?.id) return;
 
     const newMergedNames = { ...mergedNames };
-    const categoryMerges = { ...newMergedNames[mergeCategory] } || {};
+    const categoryMerges = newMergedNames[mergeCategory] ? { ...newMergedNames[mergeCategory] } : {};
 
     // Remove any existing merges that include these names
     for (const canonical of Object.keys(categoryMerges)) {
@@ -691,7 +706,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 console.log('Syncing local sheets to MongoDB...');
                 for (const sheet of localSheetsParsed) {
                   try {
-                    await dataService.saveUserSheet(sheet.id, sheet.name, sheet.url);
+                    await dataService.saveUserSheet(sheet.id, sheet.name, sheet.url as string);
                   } catch (err) {
                     console.error('Failed to sync sheet:', sheet.name, err);
                   }
@@ -1272,7 +1287,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         XLSX.utils.book_append_sheet(wb, rawWs, 'Raw Data');
 
         // Download
-        const filterCount = Object.values(filterState).filter(v => v.length > 0).length;
+        const filterCount = Object.values(filterState).filter((v: any) => v && v.length > 0).length;
         const suffix = filterCount > 0 ? '_filtered' : '_all';
         const fileName = `${activeSheet.name.replace(/\s+/g, '_')}_report${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
@@ -1361,8 +1376,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 <ChevronDown className="w-4 h-4 flex-shrink-0" />
               </button>
               <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-lg mt-1 shadow-xl opacity-0 group-hover:opacity-100 invisible group-hover:visible transition-all z-50 overflow-hidden max-h-64 overflow-y-auto">
-                {availableSheets.length > 0 ? (
-                  availableSheets.map(s => (
+                {displaySheets.length > 0 ? (
+                  displaySheets.map(s => (
                     <div key={s.id} className="flex items-center justify-between border-b border-slate-50 last:border-0">
                       <button
                         onClick={() => setActiveSheet(s)}
@@ -1370,13 +1385,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       >
                         {s.name}
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteSheet(s.id); }}
-                        className="px-2 py-2 text-slate-400 hover:text-red-500 transition"
-                        title="Remove sheet"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      {!s.isMaster && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSheet(s.id); }}
+                          className="px-2 py-2 text-slate-400 hover:text-red-500 transition"
+                          title="Remove sheet"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   ))
                 ) : (

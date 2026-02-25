@@ -96,6 +96,78 @@ class GoogleSheetsService {
   }
 
   /**
+   * Get all data from multiple sheets merged
+   */
+  async getMultipleSheetsData(sheetUrls, forceRefresh = false) {
+    if (!sheetUrls || sheetUrls.length === 0) {
+      throw new Error('No sheet URLs provided');
+    }
+
+    if (sheetUrls.length === 1) {
+      return this.getSheetData(sheetUrls[0], forceRefresh);
+    }
+
+    const sortedUrls = [...sheetUrls].sort();
+    const spreadsheetIds = sortedUrls.map(url => {
+      try {
+        return this.extractSpreadsheetId(url);
+      } catch (e) {
+        return 'invalid';
+      }
+    });
+    const hashStr = spreadsheetIds.join('_');
+    const cacheKey = `multisheet_data_${hashStr.length > 50 ? hashStr.substring(0, 50) + hashStr.length : hashStr}`;
+
+    if (!forceRefresh) {
+      const cached = await cacheService.getWithBackgroundRefresh(
+        cacheKey,
+        () => this.fetchMultipleSheetsData(sortedUrls, false),
+        SHEET_DATA_CACHE_TTL
+      );
+      if (cached) {
+        return cached;
+      }
+    }
+
+    if (this.pendingFetches.has(cacheKey)) {
+      return this.pendingFetches.get(cacheKey);
+    }
+
+    const fetchPromise = this.fetchMultipleSheetsData(sortedUrls, forceRefresh);
+    this.pendingFetches.set(cacheKey, fetchPromise);
+
+    try {
+      const result = await fetchPromise;
+      cacheService.set(cacheKey, result, SHEET_DATA_CACHE_TTL);
+      return result;
+    } finally {
+      this.pendingFetches.delete(cacheKey);
+    }
+  }
+
+  async fetchMultipleSheetsData(sheetUrls, forceRefresh) {
+    const promises = sheetUrls.map(url => this.getSheetData(url, forceRefresh).catch(err => {
+      console.error(`Failed to fetch sheet ${url}:`, err.message);
+      return null;
+    }));
+
+    const results = await Promise.all(promises);
+    const validResults = results.filter(r => r !== null);
+
+    if (validResults.length === 0) {
+      throw new Error('Failed to fetch data from any of the provided sheets');
+    }
+
+    const headers = validResults[0].headers;
+    let mergedData = [];
+    for (const res of validResults) {
+      mergedData = mergedData.concat(res.data);
+    }
+
+    return { headers, data: mergedData, totalRows: mergedData.length };
+  }
+
+  /**
    * Raw fetch from Google Sheets API - optimized transformation
    */
   async fetchSheetDataRaw(sheetUrl) {
@@ -159,6 +231,9 @@ class GoogleSheetsService {
    * Force refresh cache for a sheet
    */
   async refreshCache(sheetUrl) {
+    if (Array.isArray(sheetUrl)) {
+      return this.getMultipleSheetsData(sheetUrl, true);
+    }
     return this.getSheetData(sheetUrl, true);
   }
 
@@ -201,6 +276,39 @@ class GoogleSheetsService {
    * Returns: { hasChanged, delta, currentCount, cachedCount }
    */
   async checkForUpdates(sheetUrl) {
+    if (Array.isArray(sheetUrl)) {
+      if (sheetUrl.length === 0) {
+        return { hasChanged: false, delta: 0, currentCount: 0, cachedCount: 0, shouldInstantRefresh: false };
+      }
+
+      const sortedUrls = [...sheetUrl].sort();
+      const spreadsheetIds = sortedUrls.map(url => {
+        try { return this.extractSpreadsheetId(url); } catch (e) { return 'invalid'; }
+      });
+      const hashStr = spreadsheetIds.join('_');
+      const cacheKey = `multisheet_data_${hashStr.length > 50 ? hashStr.substring(0, 50) + hashStr.length : hashStr}`;
+      const cached = cacheService.get(cacheKey);
+      const cachedCount = cached ? cached.totalRows : 0;
+
+      try {
+        let currentCount = 0;
+        for (const url of sheetUrl) {
+          currentCount += await this.getRowCount(url);
+        }
+        const delta = currentCount - cachedCount;
+        return {
+          hasChanged: delta !== 0,
+          delta,
+          currentCount,
+          cachedCount,
+          shouldInstantRefresh: Math.abs(delta) > 0 && Math.abs(delta) <= 10
+        };
+      } catch (error) {
+        console.error('Error checking for updates on multiple sheets:', error.message);
+        return { hasChanged: false, delta: 0, currentCount: cachedCount, cachedCount, shouldInstantRefresh: false, error: error.message };
+      }
+    }
+
     const spreadsheetId = this.extractSpreadsheetId(sheetUrl);
     const cacheKey = `sheet_data_${spreadsheetId}`;
     const cached = cacheService.get(cacheKey);

@@ -102,13 +102,16 @@ class AnalyticsService {
   /**
    * Get metadata from sheet including headers and filter options
    */
-  async getSheetMetadata(sheetUrl) {
-    const cacheKey = `metadata_${sheetUrl}`;
+  async getSheetMetadata(sheetUrls) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
+    const cacheKey = `metadata_${hashStr}`;
 
     // Use background refresh for metadata
     const cached = await cacheService.getWithBackgroundRefresh(
       cacheKey,
-      async () => this.buildMetadata(sheetUrl),
+      async () => this.buildMetadata(urlsArray),
       METADATA_CACHE_TTL
     );
 
@@ -116,17 +119,20 @@ class AnalyticsService {
       return cached;
     }
 
-    return this.buildMetadata(sheetUrl);
+    return this.buildMetadata(urlsArray);
   }
 
   /**
    * Build metadata from sheet data - optimized for large datasets
    */
-  async buildMetadata(sheetUrl) {
-    const cacheKey = `metadata_${sheetUrl}`;
+  async buildMetadata(sheetUrls) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
+    const cacheKey = `metadata_${hashStr}`;
     const startTime = Date.now();
 
-    const { headers, data } = await googleSheetsService.getSheetData(sheetUrl);
+    const { headers, data } = await googleSheetsService.getMultipleSheetsData(urlsArray);
 
     // Identify filter columns - optimized with Set lookups
     const filters = {};
@@ -204,14 +210,17 @@ class AnalyticsService {
   /**
    * Get aggregated analytics based on filters - optimized with caching
    */
-  async getAnalytics(sheetUrl, filters = {}) {
+  async getAnalytics(sheetUrls, filters = {}) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
     const filterKey = Object.keys(filters).length > 0 ? JSON.stringify(filters) : 'all';
-    const cacheKey = `analytics_${sheetUrl}_${filterKey}`;
+    const cacheKey = `analytics_${hashStr}_${filterKey}`;
 
     // Use background refresh for analytics
     const cached = await cacheService.getWithBackgroundRefresh(
       cacheKey,
-      async () => this.computeAnalytics(sheetUrl, filters),
+      async () => this.computeAnalytics(urlsArray, filters),
       ANALYTICS_CACHE_TTL
     );
 
@@ -219,18 +228,21 @@ class AnalyticsService {
       return cached;
     }
 
-    return this.computeAnalytics(sheetUrl, filters);
+    return this.computeAnalytics(urlsArray, filters);
   }
 
   /**
    * Compute analytics from data
    */
-  async computeAnalytics(sheetUrl, filters) {
+  async computeAnalytics(sheetUrls, filters) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
     const filterKey = Object.keys(filters).length > 0 ? JSON.stringify(filters) : 'all';
-    const cacheKey = `analytics_${sheetUrl}_${filterKey}`;
+    const cacheKey = `analytics_${hashStr}_${filterKey}`;
     const startTime = Date.now();
 
-    const { headers, data } = await googleSheetsService.getSheetData(sheetUrl);
+    const { headers, data } = await googleSheetsService.getMultipleSheetsData(urlsArray);
 
     // Find faculty column 
     const facultyColumn = headers.find(h =>
@@ -261,16 +273,19 @@ class AnalyticsService {
    * Get filtered raw data for display/export - optimized with caching
    * Shows ORIGINAL names, but filters using name groups (select one variant = match all)
    */
-  async getFilteredData(sheetUrl, filters = {}, page = 1, pageSize = 100) {
+  async getFilteredData(sheetUrls, filters = {}, page = 1, pageSize = 100) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
     const filterKey = Object.keys(filters).length > 0 ? JSON.stringify(filters) : 'all';
-    const cacheKey = `filtered_${sheetUrl}_${filterKey}`;
+    const cacheKey = `filtered_${hashStr}_${filterKey}`;
 
     // Try to get cached filtered results (without pagination)
     let filteredData = cacheService.get(cacheKey);
     let headers;
 
     if (!filteredData) {
-      const sheetData = await googleSheetsService.getSheetData(sheetUrl);
+      const sheetData = await googleSheetsService.getMultipleSheetsData(urlsArray);
       headers = sheetData.headers;
 
       // Get name mapping for faculty column (for filter expansion)
@@ -280,7 +295,7 @@ class AnalyticsService {
 
       let nameMapping = null;
       if (facultyColumn) {
-        const nameMappingCacheKey = `namemapping_${sheetUrl}`;
+        const nameMappingCacheKey = `namemapping_${hashStr}`;
         nameMapping = cacheService.get(nameMappingCacheKey);
 
         if (!nameMapping) {
@@ -323,8 +338,12 @@ class AnalyticsService {
    * Get all filtered data for CSV export
    * Shows ORIGINAL names, but filters using name groups
    */
-  async getFilteredDataForExport(sheetUrl, filters = {}) {
-    const { headers, data } = await googleSheetsService.getSheetData(sheetUrl);
+  async getFilteredDataForExport(sheetUrls, filters = {}) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
+
+    const { headers, data } = await googleSheetsService.getMultipleSheetsData(urlsArray);
 
     // Get name mapping for faculty column (for filter expansion)
     const facultyColumn = headers.find(h =>
@@ -333,7 +352,7 @@ class AnalyticsService {
 
     let nameMapping = null;
     if (facultyColumn) {
-      const nameMappingCacheKey = `namemapping_${sheetUrl}`;
+      const nameMappingCacheKey = `namemapping_${hashStr}`;
       nameMapping = cacheService.get(nameMappingCacheKey);
 
       if (!nameMapping) {
@@ -356,8 +375,12 @@ class AnalyticsService {
   /**
    * Get name mappings for a sheet (for display in UI)
    */
-  async getNameMappings(sheetUrl) {
-    const { headers, data } = await googleSheetsService.getSheetData(sheetUrl);
+  async getNameMappings(sheetUrls) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
+
+    const { headers, data } = await googleSheetsService.getMultipleSheetsData(urlsArray);
 
     const facultyColumn = headers.find(h =>
       h.toLowerCase().includes('faculty') || h.toLowerCase().includes('teacher')
@@ -371,7 +394,7 @@ class AnalyticsService {
       };
     }
 
-    const nameMappingCacheKey = `namemapping_${sheetUrl}`;
+    const nameMappingCacheKey = `namemapping_${hashStr}`;
     let nameMapping = cacheService.get(nameMappingCacheKey);
 
     if (!nameMapping) {
@@ -395,14 +418,18 @@ class AnalyticsService {
   /**
    * Clear name mapping cache to force refresh
    */
-  async clearNameMappingCache(sheetUrl) {
-    const cacheKey = `namemapping_${sheetUrl}`;
+  async clearNameMappingCache(sheetUrls) {
+    const urlsArray = Array.isArray(sheetUrls) ? sheetUrls : [sheetUrls];
+    const hashSource = [...urlsArray].sort().join('_');
+    const hashStr = hashSource.length > 50 ? hashSource.substring(0, 50) + hashSource.length : hashSource;
+
+    const cacheKey = `namemapping_${hashStr}`;
     cacheService.delete(cacheKey);
 
     // Also clear related caches
-    cacheService.clearByPrefix(`metadata_${sheetUrl}`);
-    cacheService.clearByPrefix(`analytics_${sheetUrl}`);
-    cacheService.clearByPrefix(`filtered_${sheetUrl}`);
+    cacheService.clearByPrefix(`metadata_${hashStr}`);
+    cacheService.clearByPrefix(`analytics_${hashStr}`);
+    cacheService.clearByPrefix(`filtered_${hashStr}`);
 
     return { success: true, message: 'Name mapping cache cleared' };
   }

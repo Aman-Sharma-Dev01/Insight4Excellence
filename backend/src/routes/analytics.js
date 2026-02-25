@@ -11,25 +11,25 @@ const router = express.Router();
 router.post('/metadata', authenticateToken, async (req, res) => {
   try {
     const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     const metadata = await analyticsService.getSheetMetadata(url);
-    
+
     return res.json({
       success: true,
       data: metadata
     });
   } catch (error) {
     console.error('Metadata fetch error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -41,25 +41,25 @@ router.post('/metadata', authenticateToken, async (req, res) => {
 router.post('/aggregate', authenticateToken, async (req, res) => {
   try {
     const { url, filters } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     const analytics = await analyticsService.getAnalytics(url, filters || {});
-    
+
     return res.json({
       success: true,
       data: analytics
     });
   } catch (error) {
     console.error('Analytics fetch error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -71,25 +71,25 @@ router.post('/aggregate', authenticateToken, async (req, res) => {
 router.post('/filtered-data', authenticateToken, async (req, res) => {
   try {
     const { url, filters, page = 1, pageSize = 100 } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     const result = await analyticsService.getFilteredData(url, filters || {}, page, pageSize);
-    
+
     return res.json({
       success: true,
       data: result
     });
   } catch (error) {
     console.error('Filtered data fetch error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -101,25 +101,25 @@ router.post('/filtered-data', authenticateToken, async (req, res) => {
 router.post('/export', authenticateToken, async (req, res) => {
   try {
     const { url, filters } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     const result = await analyticsService.getFilteredDataForExport(url, filters || {});
-    
+
     return res.json({
       success: true,
       data: result
     });
   } catch (error) {
     console.error('Export data fetch error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -131,25 +131,25 @@ router.post('/export', authenticateToken, async (req, res) => {
 router.post('/name-mappings', authenticateToken, async (req, res) => {
   try {
     const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     const mappings = await analyticsService.getNameMappings(url);
-    
+
     return res.json({
       success: true,
       data: mappings
     });
   } catch (error) {
     console.error('Name mappings fetch error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -161,25 +161,25 @@ router.post('/name-mappings', authenticateToken, async (req, res) => {
 router.post('/clear-name-cache', authenticateToken, async (req, res) => {
   try {
     const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Sheet URL is required' 
+
+    if (!url || (Array.isArray(url) && url.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
       });
     }
 
     analyticsService.clearNameMappingCache(url);
-    
+
     return res.json({
       success: true,
       message: 'Name mapping cache cleared successfully'
     });
   } catch (error) {
     console.error('Clear name cache error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

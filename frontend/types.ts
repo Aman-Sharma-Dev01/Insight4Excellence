@@ -169,8 +169,9 @@ export interface RegisterData {
 export interface SheetSource {
   id: string;
   name: string;
-  url: string;
+  url: string | string[];
   dateAdded: string;
+  isMaster?: boolean;
 }
 
 export interface FilterOption {

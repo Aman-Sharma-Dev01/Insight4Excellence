@@ -111,17 +111,23 @@ class CacheService {
    * Clear all cached values for a specific sheet URL or its extracted ID
    */
   clearForSheet(sheetUrl) {
-    let sheetId = sheetUrl;
-    try {
-      const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-      if (match) sheetId = match[1];
-    } catch (e) {
-      // Ignore
-    }
+    const urls = Array.isArray(sheetUrl) ? sheetUrl : [sheetUrl];
+
+    const sheetIds = urls.map(url => {
+      let id = url;
+      try {
+        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (match) id = match[1];
+      } catch (e) {
+        // Ignore
+      }
+      return id;
+    });
 
     const keys = this.cache.keys();
     keys.forEach(key => {
-      if (key.includes(sheetUrl) || key.includes(sheetId)) {
+      const isMatch = urls.some(url => key.includes(url)) || sheetIds.some(id => key.includes(id));
+      if (isMatch || (Array.isArray(sheetUrl) && key.startsWith('multisheet_data_'))) {
         this.cache.del(key);
       }
     });

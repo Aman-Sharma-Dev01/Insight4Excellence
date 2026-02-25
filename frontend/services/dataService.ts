@@ -197,7 +197,7 @@ class DataService {
   /**
    * Get sheet metadata including headers and filter options
    */
-  async getSheetMetadata(sheetUrl: string): Promise<ApiResponse<SheetMetadata>> {
+  async getSheetMetadata(sheetUrl: string | string[]): Promise<ApiResponse<SheetMetadata>> {
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/metadata`, {
         method: 'POST',
@@ -215,7 +215,7 @@ class DataService {
   /**
    * Get aggregated analytics with filters applied
    */
-  async fetchAnalytics(sheetUrl: string, filters: FilterState): Promise<ApiResponse<AggregatedData>> {
+  async fetchAnalytics(sheetUrl: string | string[], filters: FilterState): Promise<ApiResponse<AggregatedData>> {
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/aggregate`, {
         method: 'POST',
@@ -234,7 +234,7 @@ class DataService {
    * Get paginated filtered data for display
    */
   async getFilteredData(
-    sheetUrl: string,
+    sheetUrl: string | string[],
     filters: FilterState,
     page: number = 1,
     pageSize: number = 50
@@ -256,7 +256,7 @@ class DataService {
   /**
    * Get all filtered data for CSV export
    */
-  async getExportData(sheetUrl: string, filters: FilterState): Promise<ApiResponse<ExportDataResponse>> {
+  async getExportData(sheetUrl: string | string[], filters: FilterState): Promise<ApiResponse<ExportDataResponse>> {
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/export`, {
         method: 'POST',
@@ -274,7 +274,7 @@ class DataService {
   /**
    * Refresh cache for a sheet
    */
-  async refreshCache(sheetUrl?: string): Promise<ApiResponse<{ message: string }>> {
+  async refreshCache(sheetUrl?: string | string[]): Promise<ApiResponse<{ message: string }>> {
     try {
       const response = await fetch(`${API_BASE_URL}/sheets/refresh-cache`, {
         method: 'POST',
@@ -293,7 +293,7 @@ class DataService {
    * Check for updates in the sheet (smart refresh)
    * Detects small changes (1-10 rows) for instant refresh
    */
-  async checkForUpdates(sheetUrl: string): Promise<ApiResponse<UpdateCheckResponse>> {
+  async checkForUpdates(sheetUrl: string | string[]): Promise<ApiResponse<UpdateCheckResponse>> {
     try {
       const response = await fetch(`${API_BASE_URL}/sheets/check-updates`, {
         method: 'POST',
@@ -491,7 +491,7 @@ class DataService {
   /**
    * Apply merge to Google Sheet
    */
-  async applyMergeToSheet(sheetUrl: string, category: string, canonicalName: string, variants: string[]): Promise<ApiResponse<any>> {
+  async applyMergeToSheet(sheetUrl: string | string[], category: string, canonicalName: string, variants: string[]): Promise<ApiResponse<any>> {
     try {
       const response = await fetch(`${API_BASE_URL}/sheets/apply-merge`, {
         method: 'POST',
