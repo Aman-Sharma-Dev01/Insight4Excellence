@@ -158,7 +158,14 @@ class GoogleSheetsService {
       throw new Error('Failed to fetch data from any of the provided sheets');
     }
 
-    const headers = validResults[0].headers;
+    const headerSet = new Set();
+    for (const res of validResults) {
+      for (const h of res.headers) {
+        headerSet.add(h);
+      }
+    }
+    const headers = Array.from(headerSet);
+
     let mergedData = [];
     for (const res of validResults) {
       mergedData = mergedData.concat(res.data);

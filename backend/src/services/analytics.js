@@ -187,7 +187,7 @@ class AnalyticsService {
         }
       }
 
-      if (uniqueSet.size > 0 && uniqueSet.size <= 500) {
+      if (uniqueSet.size > 0 && uniqueSet.size <= 5000) {
         filters[header] = Array.from(uniqueSet).sort();
       }
     }
