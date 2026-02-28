@@ -386,6 +386,41 @@ class GoogleSheetsService {
    * Apply a merge directly to the Google Sheet by finding and replacing variant names
    */
   async applyMerge(sheetUrl, categoryName, canonicalName, namesToReplace) {
+    if (Array.isArray(sheetUrl)) {
+      if (sheetUrl.length === 0) {
+        return { success: true, message: 'No sheets to update', modified: 0 };
+      }
+
+      let totalModified = 0;
+      const errors = [];
+
+      for (const url of sheetUrl) {
+        try {
+          const result = await this.applyMerge(url, categoryName, canonicalName, namesToReplace);
+          if (result.success) {
+            totalModified += (result.modified || 0);
+          }
+        } catch (error) {
+          console.error(`Failed to apply merge to sheet ${url}:`, error);
+          errors.push({ url, error: error.message });
+        }
+      }
+
+      // Clear cache for the array of URLs (this will clear the multisheet cache key)
+      cacheService.clearForSheet(sheetUrl);
+
+      if (errors.length === sheetUrl.length) {
+        throw new Error(`Failed to apply merge to any sheets. Errors: ${errors.map(e => e.error).join(', ')}`);
+      }
+
+      return {
+        success: true,
+        modified: totalModified,
+        message: errors.length > 0 ? `Merged with some errors. Total modified: ${totalModified}` : `Successfully merged across all sheets. Total modified: ${totalModified}`,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    }
+
     await this.initialize();
 
     if (!this.sheets) {
@@ -454,7 +489,7 @@ class GoogleSheetsService {
     }));
 
     if (requests.length === 0) {
-      return { success: true, message: 'Nothing to replace' };
+      return { success: true, message: 'Nothing to replace', modified: 0 };
     }
 
     // Execute batch update
