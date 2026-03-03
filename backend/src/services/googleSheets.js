@@ -1,19 +1,97 @@
 import { google } from 'googleapis';
 import { cacheService } from './cache.js';
 
-// Cache TTL constants (in seconds)
-const SHEET_DATA_CACHE_TTL = 600;  // 10 minutes for raw data
-const SHEET_META_CACHE_TTL = 900;  // 15 minutes for metadata
+// Cache TTL constants (in seconds) - optimized for instant updates
+const SHEET_DATA_CACHE_TTL = 30;  // 30 seconds for raw data (near-instant updates)
+const SHEET_META_CACHE_TTL = 60;  // 1 minute for metadata
+
+// API quota tracking - Google Sheets free tier is 60 read requests/minute
+const QUOTA_WINDOW_MS = 60000; // 1 minute window
+const MAX_REQUESTS_PER_WINDOW = 50; // Leave buffer below 60 limit
 
 /**
  * Google Sheets Service - Optimized for 20K-25K row datasets
- * Features: data caching, optimized transformations, background refresh
+ * Features: data caching, optimized transformations, background refresh, quota protection
  */
 class GoogleSheetsService {
   constructor() {
     this.sheets = null;
     this.initialized = false;
     this.pendingFetches = new Map(); // Prevent duplicate simultaneous fetches
+    
+    // Quota tracking
+    this.requestTimestamps = [];
+  }
+
+  /**
+   * Check if we're approaching API quota limits
+   * Returns true if safe to proceed, false if should wait
+   */
+  checkQuota() {
+    const now = Date.now();
+    // Remove timestamps older than the window
+    this.requestTimestamps = this.requestTimestamps.filter(ts => now - ts < QUOTA_WINDOW_MS);
+    return this.requestTimestamps.length < MAX_REQUESTS_PER_WINDOW;
+  }
+
+  /**
+   * Track an API request for quota monitoring
+   */
+  trackRequest() {
+    this.requestTimestamps.push(Date.now());
+  }
+
+  /**
+   * Get remaining quota in current window
+   */
+  getRemainingQuota() {
+    const now = Date.now();
+    this.requestTimestamps = this.requestTimestamps.filter(ts => now - ts < QUOTA_WINDOW_MS);
+    return MAX_REQUESTS_PER_WINDOW - this.requestTimestamps.length;
+  }
+
+  /**
+   * Wait until quota is available (with timeout)
+   */
+  async waitForQuota(maxWaitMs = 30000) {
+    const startTime = Date.now();
+    while (!this.checkQuota()) {
+      if (Date.now() - startTime > maxWaitMs) {
+        throw new Error('API quota limit reached. Please wait 1-2 minutes and try again.');
+      }
+      console.log(`[QUOTA] Waiting for quota... ${this.getRemainingQuota()} requests remaining`);
+      await this.delay(2000);
+    }
+  }
+
+  /**
+   * Clear pending fetches for specific sheet URLs - used after merge/unmerge
+   * Prevents stale data from being cached if a fetch was in progress during the merge
+   */
+  clearPendingFetches(sheetUrl) {
+    const urls = Array.isArray(sheetUrl) ? sheetUrl : [sheetUrl];
+    
+    // Extract spreadsheet IDs
+    const sheetIds = urls.map(url => {
+      try {
+        return this.extractSpreadsheetId(url);
+      } catch (e) {
+        return null;
+      }
+    }).filter(id => id !== null);
+
+    // Clear any pending fetches for these sheets
+    let clearedCount = 0;
+    for (const [key, _] of this.pendingFetches) {
+      if (sheetIds.some(id => key.includes(id))) {
+        this.pendingFetches.delete(key);
+        clearedCount++;
+      }
+    }
+
+    if (clearedCount > 0) {
+      console.log(`[MERGE/UNMERGE] Cleared ${clearedCount} pending fetches to prevent stale data`);
+    }
   }
 
   /**
@@ -187,6 +265,9 @@ class GoogleSheetsService {
     const spreadsheetId = this.extractSpreadsheetId(sheetUrl);
     const startTime = Date.now();
 
+    // Track API requests for quota monitoring
+    this.trackRequest();
+    
     // First, get spreadsheet metadata to find sheet names
     const metadata = await this.sheets.spreadsheets.get({
       spreadsheetId,
@@ -195,6 +276,9 @@ class GoogleSheetsService {
 
     const firstSheetName = metadata.data.sheets[0]?.properties?.title || 'Sheet1';
 
+    // Track second API request
+    this.trackRequest();
+    
     // Get all data from the first sheet
     const response = await this.sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -383,6 +467,36 @@ class GoogleSheetsService {
   }
 
   /**
+   * Helper: delay for a given number of milliseconds
+   */
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Helper: retry an operation with exponential backoff
+   */
+  async retryWithBackoff(operation, maxRetries = 3, initialDelay = 1000) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        const isQuotaError = error.message?.includes('Quota exceeded') || 
+                             error.message?.includes('Rate Limit') ||
+                             error.code === 429;
+        
+        if (!isQuotaError || attempt === maxRetries - 1) {
+          throw error;
+        }
+        
+        const waitTime = initialDelay * Math.pow(2, attempt);
+        console.log(`[RETRY] Quota error, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+        await this.delay(waitTime);
+      }
+    }
+  }
+
+  /**
    * Apply a merge directly to the Google Sheet by finding and replacing variant names
    */
   async applyMerge(sheetUrl, categoryName, canonicalName, namesToReplace) {
@@ -391,12 +505,31 @@ class GoogleSheetsService {
         return { success: true, message: 'No sheets to update', modified: 0 };
       }
 
+      // Check quota before starting multi-sheet operation
+      const requiredRequests = sheetUrl.length * 3; // Each sheet needs ~3 API calls
+      console.log(`[MERGE] Processing ${sheetUrl.length} sheets, estimated ${requiredRequests} API calls. Remaining quota: ${this.getRemainingQuota()}`);
+      
+      if (this.getRemainingQuota() < requiredRequests) {
+        console.log(`[MERGE] Waiting for quota to recover...`);
+        await this.waitForQuota(60000); // Wait up to 60s for quota
+      }
+
       let totalModified = 0;
       const errors = [];
 
-      for (const url of sheetUrl) {
+      for (let i = 0; i < sheetUrl.length; i++) {
+        const url = sheetUrl[i];
         try {
-          const result = await this.applyMerge(url, categoryName, canonicalName, namesToReplace);
+          // Add delay between sheet operations to avoid quota issues
+          if (i > 0) {
+            console.log(`[MERGE] Waiting 2s before processing sheet ${i + 1}/${sheetUrl.length}...`);
+            await this.delay(2000);
+          }
+          
+          const result = await this.retryWithBackoff(
+            () => this.applyMerge(url, categoryName, canonicalName, namesToReplace)
+          );
+          
           if (result.success) {
             totalModified += (result.modified || 0);
           }
@@ -406,8 +539,12 @@ class GoogleSheetsService {
         }
       }
 
-      // Clear cache for the array of URLs (this will clear the multisheet cache key)
-      cacheService.clearForSheet(sheetUrl);
+      // Clear pending fetches to prevent stale data
+      sheetUrl.forEach(url => this.clearPendingFetches(url));
+      
+      // Aggressively clear cache for ALL URLs and the multisheet composite cache
+      sheetUrl.forEach(url => cacheService.clearAllForSheetOperation(url));
+      cacheService.clearAllForSheetOperation(sheetUrl);
 
       if (errors.length === sheetUrl.length) {
         throw new Error(`Failed to apply merge to any sheets. Errors: ${errors.map(e => e.error).join(', ')}`);
@@ -417,7 +554,8 @@ class GoogleSheetsService {
         success: true,
         modified: totalModified,
         message: errors.length > 0 ? `Merged with some errors. Total modified: ${totalModified}` : `Successfully merged across all sheets. Total modified: ${totalModified}`,
-        errors: errors.length > 0 ? errors : undefined
+        errors: errors.length > 0 ? errors : undefined,
+        sheetsUpdated: sheetUrl.length - errors.length
       };
     }
 
@@ -502,12 +640,16 @@ class GoogleSheetsService {
 
     console.log(`Successfully merged ${requests.length} names to ${canonicalName} in sheet ${spreadsheetId}`);
 
-    // Clear cache to force refresh on next load
-    cacheService.clearForSheet(sheetUrl);
+    // Clear any pending fetches that might cache stale data
+    this.clearPendingFetches(sheetUrl);
+    
+    // Aggressively clear ALL caches to force instant refresh on next load
+    cacheService.clearAllForSheetOperation(sheetUrl);
 
     return {
       success: true,
-      modified: requests.length
+      modified: requests.length,
+      spreadsheetId
     };
   }
 }

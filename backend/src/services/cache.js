@@ -6,12 +6,12 @@ import NodeCache from 'node-cache';
  */
 class CacheService {
   constructor() {
-    // Increased TTL for production: 10 minutes default, check every 2 minutes
+    // Reduced TTL for instant updates: 30 seconds default, check every 10 seconds
     this.cache = new NodeCache({
-      stdTTL: 600,
-      checkperiod: 120,
+      stdTTL: 30,
+      checkperiod: 10,
       useClones: false, // Disable cloning for large datasets - improves memory/speed
-      maxKeys: 100 // Limit keys to prevent memory bloat
+      maxKeys: 500 // Increased key limit for 10+ sheets with many cache variations
     });
 
     // Track refresh callbacks for background refresh
@@ -125,12 +125,59 @@ class CacheService {
     });
 
     const keys = this.cache.keys();
+    let clearedCount = 0;
     keys.forEach(key => {
       const isMatch = urls.some(url => key.includes(url)) || sheetIds.some(id => key.includes(id));
       if (isMatch || (Array.isArray(sheetUrl) && key.startsWith('multisheet_data_'))) {
         this.cache.del(key);
+        clearedCount++;
       }
     });
+    
+    console.log(`Cleared ${clearedCount} cache entries for sheet(s)`);
+  }
+
+  /**
+   * Clear ALL caches related to a sheet - used after merge/unmerge for instant updates
+   * This is more aggressive than clearForSheet and clears ALL related caches
+   */
+  clearAllForSheetOperation(sheetUrl) {
+    const urls = Array.isArray(sheetUrl) ? sheetUrl : [sheetUrl];
+
+    const sheetIds = urls.map(url => {
+      let id = url;
+      try {
+        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (match) id = match[1];
+      } catch (e) {
+        // Ignore
+      }
+      return id;
+    });
+
+    const keys = this.cache.keys();
+    let clearedCount = 0;
+
+    keys.forEach(key => {
+      // Check if key matches any URL or ID
+      const isDirectMatch = urls.some(url => key.includes(url)) || sheetIds.some(id => key.includes(id));
+      
+      // Also clear multisheet caches (they may contain data from this sheet)
+      const isMultiSheet = key.startsWith('multisheet_data_') || key.startsWith('metadata_') || 
+                          key.startsWith('analytics_') || key.startsWith('filtered_') ||
+                          key.startsWith('namemapping_');
+      
+      // For multisheet caches, check if any of our sheet IDs are part of the key
+      const multiSheetContainsOurSheet = isMultiSheet && sheetIds.some(id => key.includes(id));
+      
+      if (isDirectMatch || multiSheetContainsOurSheet) {
+        this.cache.del(key);
+        clearedCount++;
+      }
+    });
+
+    console.log(`[MERGE/UNMERGE] Aggressively cleared ${clearedCount} cache entries for instant update`);
+    return clearedCount;
   }
 
   /**

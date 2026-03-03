@@ -59,8 +59,13 @@ const userSchema = new mongoose.Schema({
     default: 'user'
   },
   sheets: [sheetSchema],
-  // Merged names mapping stored as JSON: { "sheetId": { "category": { "canonicalName": ["variant1", "variant2"] } } }
+  // Merged names mapping stored as JSON: { "sheetId": { "category": { "canonicalName": { variants: [...], permanent: bool } } } }
   mergedNames: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  // Merge history for rollback: { "sheetId": [{ id, timestamp, action, category, canonicalName, variants, originalData }] }
+  mergeHistory: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
@@ -73,6 +78,10 @@ const userSchema = new mongoose.Schema({
       type: String,
       enum: ['light', 'dark', 'system'],
       default: 'system'
+    },
+    preferMasterSheet: {
+      type: Boolean,
+      default: true
     }
   },
   lastLogin: {
@@ -112,6 +121,7 @@ userSchema.methods.toProfile = function() {
     role: this.role,
     sheets: this.sheets,
     mergedNames: this.mergedNames || {},
+    mergeHistory: this.mergeHistory || {},
     settings: this.settings,
     lastLogin: this.lastLogin,
     createdAt: this.createdAt

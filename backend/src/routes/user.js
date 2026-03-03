@@ -478,4 +478,89 @@ router.delete('/merged-names/:sheetId/:category/:canonicalName', async (req, res
   }
 });
 
+// GET /api/user/merge-history/:sheetId - Get merge history for rollback
+router.get('/merge-history/:sheetId', async (req, res) => {
+  try {
+    const { sheetId } = req.params;
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    const history = (user.mergeHistory && user.mergeHistory[sheetId]) || [];
+
+    res.json({
+      success: true,
+      data: history
+    });
+  } catch (error) {
+    console.error('Get merge history error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get merge history' 
+    });
+  }
+});
+
+// POST /api/user/merge-history/:sheetId - Add to merge history
+router.post('/merge-history/:sheetId', async (req, res) => {
+  try {
+    const { sheetId } = req.params;
+    const { action, category, canonicalName, variants, originalData } = req.body;
+    
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // Initialize merge history if not exists
+    if (!user.mergeHistory) {
+      user.mergeHistory = {};
+    }
+    if (!user.mergeHistory[sheetId]) {
+      user.mergeHistory[sheetId] = [];
+    }
+
+    // Add new history entry
+    const historyEntry = {
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      action, // 'merge' or 'rollback'
+      category,
+      canonicalName,
+      variants,
+      originalData // Original values before merge (for rollback)
+    };
+
+    user.mergeHistory[sheetId].unshift(historyEntry);
+
+    // Keep only last 50 history entries per sheet
+    if (user.mergeHistory[sheetId].length > 50) {
+      user.mergeHistory[sheetId] = user.mergeHistory[sheetId].slice(0, 50);
+    }
+
+    user.markModified('mergeHistory');
+    await user.save();
+
+    res.json({
+      success: true,
+      data: historyEntry
+    });
+  } catch (error) {
+    console.error('Add merge history error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to add merge history' 
+    });
+  }
+});
+
 export default router;

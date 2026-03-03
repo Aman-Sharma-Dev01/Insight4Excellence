@@ -7,7 +7,7 @@ import StatsCards from './StatsCards';
 import AnalyticsCharts from './AnalyticsCharts';
 import FilteredDataTable from './FilteredDataTable';
 import FacultyScorecard from './FacultyScorecard';
-import { Filter, Download, Database, ChevronDown, ChevronLeft, ChevronRight, User as UserIcon, LogOut, BrainCircuit, Plus, FileText, X, RefreshCw, Clock, Search, AlertCircle, Table, BarChart3, CheckCircle, Award, Users, BookOpen, Layers, PanelLeftClose, PanelLeft, FileSpreadsheet, Star, StarHalf } from 'lucide-react';
+import { Filter, Download, Database, ChevronDown, ChevronLeft, ChevronRight, User as UserIcon, LogOut, BrainCircuit, Plus, FileText, X, RefreshCw, Clock, Search, AlertCircle, Table, BarChart3, CheckCircle, Award, Users, BookOpen, Layers, PanelLeftClose, PanelLeft, FileSpreadsheet, Star, StarHalf, AlertTriangle, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface DashboardProps {
@@ -50,7 +50,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [autoRefresh, setAutoRefresh] = React.useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.AUTO_REFRESH);
-      return saved ? JSON.parse(saved) : false;
+      // Default to false - use manual refresh button to save API quota
+      return saved !== null ? JSON.parse(saved) : false;
     } catch (e) {
       return false;
     }
@@ -128,6 +129,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     section: string;
     comments: string[];
   } | null>(null);
+
+  // Merge operation progress state
+  const [mergeProgress, setMergeProgress] = React.useState<{
+    isProcessing: boolean;
+    step: 'confirming' | 'updating-sheet' | 'refreshing' | 'complete' | null;
+    message: string;
+  }>({ isProcessing: false, step: null, message: '' });
 
   const refreshTimerRef = React.useRef<number | null>(null);
 
@@ -242,6 +250,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     }
   }, [activeSheet, filterState]);
 
+  // Force refresh - clears all cache and fetches fresh data immediately
+  // This is used after merge/unmerge operations to ensure instant UI updates
+  const forceRefreshData = React.useCallback(async () => {
+    if (!activeSheet) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // 1. Force refresh on backend (clears all caches and fetches fresh data from Google Sheets)
+      console.log('[FORCE REFRESH] Starting full data refresh...');
+      await dataService.forceRefresh(activeSheet.url);
+
+      // 2. Fetch fresh metadata, analytics, and filtered data in parallel for speed
+      const [metaResponse, analyticsResponse, filteredResponse] = await Promise.all([
+        dataService.getSheetMetadata(activeSheet.url),
+        dataService.fetchAnalytics(activeSheet.url, filterState),
+        dataService.getFilteredData(activeSheet.url, filterState, 1, 50)
+      ]);
+
+      // Update metadata/filters
+      if (metaResponse.success && metaResponse.data) {
+        setDynamicFilters(metaResponse.data.filters);
+      }
+
+      // Update analytics
+      if (analyticsResponse.success && analyticsResponse.data) {
+        setAnalytics(analyticsResponse.data);
+        setLastSynced(new Date());
+      }
+
+      // Always update filtered data (ready for any view mode)
+      if (filteredResponse.success && filteredResponse.data) {
+        setFilteredDataHeaders(filteredResponse.data.headers);
+        setFilteredData(filteredResponse.data.data);
+        setPagination(filteredResponse.data.pagination);
+      }
+
+      console.log('[FORCE REFRESH] Completed successfully');
+    } catch (err) {
+      console.error("Force Refresh Error:", err);
+      setError('Failed to refresh data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeSheet, filterState]);
+
   // Fetch filtered data for table view
   const fetchFilteredData = React.useCallback(async (page: number = 1) => {
     if (!activeSheet) return;
@@ -281,31 +336,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     localStorage.setItem(STORAGE_KEYS.SAVED_SHEETS, JSON.stringify(availableSheets));
   }, [availableSheets]);
 
-  // Load merged names from backend when activeSheet changes
+  // Load merged names and merge history from backend when activeSheet changes
   React.useEffect(() => {
-    const loadMergedNames = async () => {
+    const loadMergedNamesAndHistory = async () => {
       if (!activeSheet?.id) {
         setMergedNames({});
+        setMergeHistory([]);
         return;
       }
 
       setMergedNamesLoading(true);
       try {
-        const response = await dataService.getMergedNames(activeSheet.id);
-        if (response.success && response.data) {
-          setMergedNames(response.data);
+        // Load merged names and history in parallel for speed
+        const [mergedResponse, historyResponse] = await Promise.all([
+          dataService.getMergedNames(activeSheet.id),
+          dataService.getMergeHistory(activeSheet.id)
+        ]);
+
+        if (mergedResponse.success && mergedResponse.data) {
+          setMergedNames(mergedResponse.data);
         } else {
           setMergedNames({});
+        }
+
+        if (historyResponse.success && historyResponse.data) {
+          setMergeHistory(historyResponse.data);
+        } else {
+          setMergeHistory([]);
         }
       } catch (err) {
         console.error('Failed to load merged names:', err);
         setMergedNames({});
+        setMergeHistory([]);
       } finally {
         setMergedNamesLoading(false);
       }
     };
 
-    loadMergedNames();
+    loadMergedNamesAndHistory();
   }, [activeSheet?.id]);
 
   // Calculate faculty averages when filtered data changes
@@ -536,8 +604,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const handleConfirmMerge = async () => {
     if (!mergeCanonicalName || mergeSelectedNames.length < 2 || !activeSheet?.id) return;
 
+    // Start merge progress
+    setMergeProgress({ isProcessing: true, step: 'confirming', message: 'Preparing merge...' });
+
     const newMergedNames = { ...mergedNames };
     const categoryMerges = newMergedNames[mergeCategory] ? { ...newMergedNames[mergeCategory] } : {};
+
+    // Store original data
+    const originalData: Record<string, string> = {};
+    mergeSelectedNames.forEach(name => {
+      originalData[name] = name;
+    });
 
     // Remove any existing merges that include these names
     for (const canonical of Object.keys(categoryMerges)) {
@@ -545,7 +622,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         categoryMerges[canonical].variants = categoryMerges[canonical].variants.filter(
           v => !mergeSelectedNames.includes(v)
         );
-        // Remove empty entries
         if (categoryMerges[canonical].variants.length === 0) {
           delete categoryMerges[canonical];
         }
@@ -559,16 +635,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     };
     newMergedNames[mergeCategory] = categoryMerges;
 
-    // Update local state immediately
+    // Update local state immediately (optimistic update)
     setMergedNames(newMergedNames);
 
-    // Update filter state to include ALL original variant names (not just canonical)
-    // This ensures the backend filters by all the merged names
+    // Update filter state to include ALL original variant names
     setFilterState(prev => {
       const currentValues = prev[mergeCategory] || [];
-      // Keep values that are not part of the merge
       const otherValues = currentValues.filter(v => !mergeSelectedNames.includes(v));
-      // Add all the merged variant names to ensure filtering works correctly
       const newValues = [...new Set([...otherValues, ...mergeSelectedNames])];
       return { ...prev, [mergeCategory]: newValues };
     });
@@ -576,30 +649,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Save to backend and apply to Google Sheets
     setMergedNamesLoading(true);
     try {
+      setMergeProgress({ isProcessing: true, step: 'confirming', message: 'Saving merge configuration...' });
+      
+      // Save merged names to backend
       await dataService.updateMergedNames(activeSheet.id, newMergedNames);
+      
+      // Add to history
+      await dataService.addMergeHistory(
+        activeSheet.id,
+        'merge',
+        mergeCategory,
+        mergeCanonicalName,
+        mergeSelectedNames,
+        originalData
+      );
 
       if (updateOriginalData) {
-        // Apply the merge directly to the Google Sheet
-        await dataService.applyMergeToSheet(
+        setMergeProgress({ 
+          isProcessing: true, 
+          step: 'updating-sheet', 
+          message: `Updating Google Sheets... Replacing ${mergeSelectedNames.length} names with "${mergeCanonicalName}"` 
+        });
+        
+        console.log('[MERGE] Applying merge to Google Sheet...', {
+          url: activeSheet.url,
+          category: mergeCategory,
+          canonical: mergeCanonicalName,
+          variants: mergeSelectedNames
+        });
+        
+        const mergeResult = await dataService.applyMergeToSheet(
           activeSheet.url,
           mergeCategory,
           mergeCanonicalName,
           mergeSelectedNames
         );
+        
+        if (!mergeResult.success) {
+          console.error('[MERGE] Failed to apply merge to sheet:', mergeResult.error);
+          // User-friendly error messages
+          let errorMessage = mergeResult.error || 'Unknown error';
+          if (errorMessage.includes('Quota') || errorMessage.includes('quota') || errorMessage.includes('Rate Limit')) {
+            errorMessage = 'Google API quota limit reached. Please wait 1-2 minutes and try again. Tip: Avoid rapid refreshing.';
+          }
+          setError(`Failed to update Google Sheet: ${errorMessage}`);
+          setMergeProgress({ isProcessing: false, step: null, message: '' });
+          setMergedNamesLoading(false);
+          return;
+        } else {
+          console.log('[MERGE] Successfully applied to Google Sheet:', mergeResult.data);
+        }
       }
 
-      // Refresh data to reflect the changes from the sheet
-      refreshData(true);
+      // Show refreshing step
+      setMergeProgress({ isProcessing: true, step: 'refreshing', message: 'Refreshing dashboard data...' });
+      
+      // FORCE refresh data to reflect the changes from the sheet immediately
+      await forceRefreshData();
+      
+      // Show completion
+      setMergeProgress({ isProcessing: true, step: 'complete', message: `Successfully merged ${mergeSelectedNames.length} names into "${mergeCanonicalName}"` });
+      
+      // Keep completion message visible briefly
+      setTimeout(() => {
+        setMergeProgress({ isProcessing: false, step: null, message: '' });
+        setShowMergeModal(false);
+        setMergeCategory('');
+        setMergeSelectedNames([]);
+        setMergeCanonicalName('');
+      }, 1500);
     } catch (err) {
       console.error('Failed to save merged names or apply to sheet:', err);
+      setMergeProgress({ isProcessing: false, step: null, message: '' });
+      setError('Failed to complete merge. Please try again.');
     } finally {
       setMergedNamesLoading(false);
     }
-
-    setShowMergeModal(false);
-    setMergeCategory('');
-    setMergeSelectedNames([]);
-    setMergeCanonicalName('');
   };
 
   // Handle unmerging a canonical name
@@ -617,7 +742,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Save to backend
     try {
       await dataService.updateMergedNames(activeSheet.id, newMergedNames);
-      refreshData();
+      // FORCE refresh to ensure immediate UI update
+      await forceRefreshData();
     } catch (err) {
       console.error('Failed to save unmerge:', err);
     }
@@ -630,12 +756,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     setMergedNamesLoading(true);
     try {
       // 1. Apply to Google Sheets
-      await dataService.applyMergeToSheet(
+      console.log('[MERGE] Making merge permanent...', { category, canonicalName, variants: originalNames });
+      
+      const mergeResult = await dataService.applyMergeToSheet(
         activeSheet.url,
         category,
         canonicalName,
         originalNames
       );
+
+      if (!mergeResult.success) {
+        console.error('[MERGE] Failed to make permanent:', mergeResult.error);
+        setError(`Failed to update Google Sheet: ${mergeResult.error || 'Unknown error'}`);
+        setMergedNamesLoading(false);
+        return;
+      }
+      
+      console.log('[MERGE] Successfully made permanent:', mergeResult.data);
 
       // 2. Update local state to mark as permanent
       const newMergedNames = { ...mergedNames };
@@ -656,19 +793,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       // 3. Save updated state to backend
       await dataService.updateMergedNames(activeSheet.id, newMergedNames);
 
-      // 4. Refresh data
-      refreshData(true);
+      // 4. FORCE refresh data to ensure immediate UI update
+      await forceRefreshData();
     } catch (err) {
       console.error('Failed to make merge permanent:', err);
+      setError('Failed to make merge permanent. Please try again.');
     } finally {
       setMergedNamesLoading(false);
     }
   };
 
-  // Initial and reactive data fetch
+  // Initial and reactive data fetch - also clears data when no sheet is active
   React.useEffect(() => {
     if (activeSheet) {
       refreshData();
+    } else {
+      // Clear all data when no sheet is active
+      setAnalytics(null);
+      setDynamicFilters({});
+      setFilteredData([]);
+      setFilteredDataHeaders([]);
+      setFilterState({});
+      setPagination({ page: 1, pageSize: 50, totalRows: 0, totalPages: 0 });
+      setFacultyAverages(null);
+      setError('');
     }
   }, [activeSheet, refreshData]);
 
@@ -690,29 +838,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             setAvailableSheets(sheetSources);
             localStorage.setItem(STORAGE_KEYS.SAVED_SHEETS, JSON.stringify(sheetSources));
 
-            // Set active sheet to default or first
-            const defaultSheet = sheetSources.find(s => s.id === defaultSheetId) || sheetSources[0];
-            if (defaultSheet) {
-              setActiveSheet(defaultSheet);
-              localStorage.setItem(STORAGE_KEYS.ACTIVE_SHEET, JSON.stringify(defaultSheet));
+            // Determine which sheet to show by default
+            // Priority: Master Sheet (if multiple sheets) > User's default > First sheet
+            let activeSheetToSet: SheetSource | null = null;
+
+            if (sheetSources.length > 1) {
+              // Create master sheet for multiple connected sheets
+              const masterSheet: SheetSource = {
+                id: 'master',
+                name: 'Master Sheet (All Connected Data)',
+                url: sheetSources.map(s => s.url as string),
+                dateAdded: new Date().toISOString(),
+                isMaster: true
+              };
+              activeSheetToSet = masterSheet;
+            } else {
+              // Single sheet or user's default
+              activeSheetToSet = sheetSources.find(s => s.id === defaultSheetId) || sheetSources[0];
+            }
+
+            if (activeSheetToSet) {
+              setActiveSheet(activeSheetToSet);
+              localStorage.setItem(STORAGE_KEYS.ACTIVE_SHEET, JSON.stringify(activeSheetToSet));
             }
           } else {
-            // No sheets in MongoDB - sync local sheets if any exist
-            const localSheets = localStorage.getItem(STORAGE_KEYS.SAVED_SHEETS);
-            if (localSheets) {
-              const localSheetsParsed: SheetSource[] = JSON.parse(localSheets);
-              if (localSheetsParsed.length > 0) {
-                // Sync local sheets to MongoDB
-                console.log('Syncing local sheets to MongoDB...');
-                for (const sheet of localSheetsParsed) {
-                  try {
-                    await dataService.saveUserSheet(sheet.id, sheet.name, sheet.url as string);
-                  } catch (err) {
-                    console.error('Failed to sync sheet:', sheet.name, err);
-                  }
-                }
-              }
-            }
+            // No sheets in MongoDB - clear local state and localStorage
+            setAvailableSheets([]);
+            setActiveSheet(null);
+            setAnalytics(null);
+            setDynamicFilters({});
+            setFilteredData([]);
+            setFilteredDataHeaders([]);
+            setFilterState({});
+            setPagination({ page: 1, pageSize: 50, totalRows: 0, totalPages: 0 });
+            setMergedNames({});
+            setMergeHistory([]);
+            setFacultyAverages(null);
+            
+            // Clear localStorage to avoid stale data
+            localStorage.removeItem(STORAGE_KEYS.ACTIVE_SHEET);
+            localStorage.removeItem(STORAGE_KEYS.FILTER_STATE);
+            localStorage.setItem(STORAGE_KEYS.SAVED_SHEETS, JSON.stringify([]));
           }
         }
       } catch (err) {
@@ -733,38 +899,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   }, [viewMode, filterState, activeSheet, fetchFilteredData]);
 
   // Handle Polling / Smart Real-time Sync
-  // Checks for updates every 30 seconds, instant refresh for 1-10 new responses
+  // Reduced to 60 seconds to avoid API quota issues
+  const lastRefreshTimeRef = React.useRef<number>(0);
+  const consecutiveRefreshesRef = React.useRef<number>(0);
+  
   React.useEffect(() => {
     if (autoRefresh && activeSheet) {
       const smartRefresh = async () => {
         try {
+          // Prevent too frequent refreshes (minimum 30 second gap)
+          const now = Date.now();
+          if (now - lastRefreshTimeRef.current < 30000) {
+            console.log('Skipping refresh - too soon since last refresh');
+            return;
+          }
+
+          // If we've done 3 consecutive refreshes, wait longer (backoff)
+          if (consecutiveRefreshesRef.current >= 3) {
+            console.log('Backoff: Too many consecutive refreshes, waiting...');
+            consecutiveRefreshesRef.current = 0;
+            return;
+          }
+
           const result = await dataService.checkForUpdates(activeSheet.url);
           if (result.success && result.data) {
             const { hasChanged, delta, shouldInstantRefresh } = result.data;
 
             if (hasChanged) {
               console.log(`Smart refresh: ${delta} changes detected`);
+              lastRefreshTimeRef.current = now;
+              consecutiveRefreshesRef.current++;
 
               if (shouldInstantRefresh) {
                 // 1-10 changes: instant refresh (already triggered on backend)
                 console.log('Instant refresh triggered for small change');
                 await refreshData(true); // Background refresh
               } else if (Math.abs(delta) > 10) {
-                // Large change: just notify, use cached data
-                console.log('Large change detected, will use cache');
+                // Large change: force refresh but with backoff
+                console.log('Large change detected, forcing refresh');
+                await refreshData(true);
               }
+            } else {
+              // No changes - reset consecutive counter
+              consecutiveRefreshesRef.current = 0;
             }
           }
         } catch (error) {
           console.error('Smart refresh check failed:', error);
+          // On error (likely quota), wait longer
+          consecutiveRefreshesRef.current = 5; // Force backoff
         }
       };
 
-      // Check every 30 seconds for updates
-      refreshTimerRef.current = window.setInterval(smartRefresh, 30000);
+      // Check every 60 seconds to avoid API quota issues (was 5 seconds)
+      refreshTimerRef.current = window.setInterval(smartRefresh, 60000);
 
-      // Also run immediately on enable
-      smartRefresh();
+      // Run once on enable (but not immediately to avoid quota)
+      const initialTimeout = setTimeout(() => smartRefresh(), 5000);
+      
+      return () => {
+        if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+        clearTimeout(initialTimeout);
+      };
     } else {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     }
@@ -850,17 +1046,57 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   const handleDeleteSheet = async (sheetId: string) => {
+    // Find the sheet to get its URL for cache clearing
+    const sheetToDelete = availableSheets.find(s => s.id === sheetId);
+    
     // Remove from MongoDB
     try {
       await dataService.removeUserSheet(sheetId);
+      
+      // Also clear the cache for this sheet's data
+      if (sheetToDelete?.url) {
+        await dataService.refreshCache(sheetToDelete.url);
+      }
     } catch (err) {
       console.error('Failed to remove sheet from database:', err);
     }
 
-    setAvailableSheets(prev => prev.filter(s => s.id !== sheetId));
-    if (activeSheet?.id === sheetId) {
-      const remaining = availableSheets.filter(s => s.id !== sheetId);
-      setActiveSheet(remaining.length > 0 ? remaining[0] : null);
+    const remaining = availableSheets.filter(s => s.id !== sheetId);
+    setAvailableSheets(remaining);
+    
+    if (activeSheet?.id === sheetId || activeSheet?.isMaster) {
+      if (remaining.length > 0) {
+        // If multiple sheets remain, use master sheet
+        if (remaining.length > 1) {
+          const masterSheet: SheetSource = {
+            id: 'master',
+            name: 'Master Sheet (All Connected Data)',
+            url: remaining.map(s => s.url as string),
+            dateAdded: new Date().toISOString(),
+            isMaster: true
+          };
+          setActiveSheet(masterSheet);
+        } else {
+          setActiveSheet(remaining[0]);
+        }
+      } else {
+        // No sheets remaining - clear all data
+        setActiveSheet(null);
+        setAnalytics(null);
+        setDynamicFilters({});
+        setFilteredData([]);
+        setFilteredDataHeaders([]);
+        setFilterState({});
+        setPagination({ page: 1, pageSize: 50, totalRows: 0, totalPages: 0 });
+        setMergedNames({});
+        setMergeHistory([]);
+        setFacultyAverages(null);
+        
+        // Clear localStorage
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_SHEET);
+        localStorage.removeItem(STORAGE_KEYS.FILTER_STATE);
+        localStorage.setItem(STORAGE_KEYS.SAVED_SHEETS, JSON.stringify([]));
+      }
     }
   };
 
@@ -1660,11 +1896,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
           <div className="mt-8 space-y-3">
             <button
-              onClick={() => refreshData()}
+              onClick={() => forceRefreshData()}
               disabled={!activeSheet || loading}
-              className="w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-600 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-bold text-white transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Update Now
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Force Refresh Now
             </button>
             <button
               onClick={() => { setFilterState({}); setFilterSearchQueries({}); }}
@@ -1822,11 +2058,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      onClick={() => refreshData()}
+                      onClick={() => forceRefreshData()}
                       disabled={!activeSheet || loading}
-                      className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Update Now
+                      <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Force Refresh Now
                     </button>
 
                     <button
@@ -2219,11 +2455,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       {/* Merge Names Modal */}
       {showMergeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowMergeModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !mergeProgress.isProcessing && setShowMergeModal(false)}></div>
           <div className="relative bg-white w-full max-w-md max-h-[90vh] rounded-2xl shadow-2xl flex flex-col animate-in zoom-in duration-300">
-            <button onClick={() => setShowMergeModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition z-10">
-              <X className="w-5 h-5" />
-            </button>
+            {!mergeProgress.isProcessing && (
+              <button onClick={() => setShowMergeModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition z-10">
+                <X className="w-5 h-5" />
+              </button>
+            )}
+            
+            {/* Progress Overlay */}
+            {mergeProgress.isProcessing && (
+              <div className="absolute inset-0 bg-white/95 z-20 flex flex-col items-center justify-center rounded-2xl">
+                <div className="text-center px-6">
+                  {mergeProgress.step === 'complete' ? (
+                    <CheckCircle className="w-16 h-16 mx-auto text-emerald-500 mb-4" />
+                  ) : (
+                    <Loader2 className="w-16 h-16 mx-auto text-indigo-600 animate-spin mb-4" />
+                  )}
+                  <h3 className="text-lg font-bold text-slate-800 mb-2">
+                    {mergeProgress.step === 'confirming' && 'Preparing Merge...'}
+                    {mergeProgress.step === 'updating-sheet' && 'Updating Google Sheets...'}
+                    {mergeProgress.step === 'refreshing' && 'Refreshing Dashboard...'}
+                    {mergeProgress.step === 'complete' && 'Merge Complete!'}
+                  </h3>
+                  <p className="text-sm text-slate-500">{mergeProgress.message}</p>
+                  
+                  {/* Progress steps indicator */}
+                  <div className="flex items-center justify-center gap-2 mt-6">
+                    <div className={`w-3 h-3 rounded-full ${mergeProgress.step === 'confirming' ? 'bg-indigo-600 animate-pulse' : 'bg-emerald-500'}`} />
+                    <div className={`w-8 h-0.5 ${mergeProgress.step !== 'confirming' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-3 h-3 rounded-full ${mergeProgress.step === 'updating-sheet' ? 'bg-indigo-600 animate-pulse' : mergeProgress.step === 'refreshing' || mergeProgress.step === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-8 h-0.5 ${mergeProgress.step === 'refreshing' || mergeProgress.step === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-3 h-3 rounded-full ${mergeProgress.step === 'refreshing' ? 'bg-indigo-600 animate-pulse' : mergeProgress.step === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-8 h-0.5 ${mergeProgress.step === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <div className={`w-3 h-3 rounded-full ${mergeProgress.step === 'complete' ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400 mt-1 px-2">
+                    <span>Save</span>
+                    <span>Update Sheet</span>
+                    <span>Refresh</span>
+                    <span>Done</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="p-6 pb-4 border-b border-slate-100 flex-shrink-0">
               <div className="flex items-center gap-3 mb-2">
                 <div className="bg-emerald-100 p-2 rounded-lg">
@@ -2238,12 +2514,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
             <div className="p-6 overflow-y-auto flex-1">
               <div className="space-y-4">
+                {/* PERMANENT WARNING */}
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold text-red-800 mb-1">This action is PERMANENT</p>
+                      <p className="text-xs text-red-700 leading-relaxed">
+                        Once merged, these names <strong>cannot be unmerged or reverted</strong>. 
+                        The original data in your Google Sheets will be permanently changed.
+                        Make sure you want to merge all these names before proceeding.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Names being merged - full list */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Names to Merge</label>
-                  <div className="bg-slate-50 rounded-lg p-3 max-h-32 overflow-y-auto">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Names that will be merged ({mergeSelectedNames.length})
+                  </label>
+                  <div className="bg-slate-50 rounded-lg p-3 max-h-40 overflow-y-auto border border-slate-200">
                     {mergeSelectedNames.map((name, idx) => (
-                      <div key={idx} className="text-sm text-slate-600 py-1 border-b border-slate-100 last:border-0">
-                        {name}
+                      <div key={idx} className="flex items-center justify-between text-sm text-slate-600 py-1.5 border-b border-slate-100 last:border-0 group">
+                        <span className="flex items-center gap-2">
+                          <span className="w-5 h-5 bg-slate-200 rounded-full flex items-center justify-center text-[10px] text-slate-500 font-bold">
+                            {idx + 1}
+                          </span>
+                          {name}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {name === mergeCanonicalName && (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded">
+                              DISPLAY NAME
+                            </span>
+                          )}
+                          {mergeSelectedNames.length > 2 && (
+                            <button
+                              onClick={() => {
+                                const newNames = mergeSelectedNames.filter((_, i) => i !== idx);
+                                setMergeSelectedNames(newNames);
+                                // If removing the canonical name, switch to first remaining name
+                                if (name === mergeCanonicalName && newNames.length > 0) {
+                                  setMergeCanonicalName(newNames[0]);
+                                }
+                              }}
+                              className="opacity-0 group-hover:opacity-100 px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-600 text-[10px] font-bold rounded transition flex items-center gap-1"
+                              title="Remove from merge"
+                            >
+                              <X className="w-3 h-3" />
+                              Remove
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2317,41 +2640,67 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                   />
                 </div>
 
-                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-                  <div className="text-xs text-emerald-800 leading-relaxed mb-3">
-                    <strong>Note:</strong> Merged names will be saved locally. When filtering, all variants will be treated as "<strong>{mergeCanonicalName || 'the chosen name'}</strong>".
-                  </div>
-
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
-                      checked={updateOriginalData}
-                      onChange={(e) => setUpdateOriginalData(e.target.checked)}
-                    />
-                    <span className="text-xs text-emerald-900 leading-relaxed font-semibold">
-                      Also change original data in Google Sheets (replaces variant names with canonical name permanently).
-                    </span>
-                  </label>
+                {/* Summary of what will happen */}
+                <div className="p-3 bg-slate-100 rounded-lg border border-slate-200">
+                  <p className="text-xs font-bold text-slate-700 mb-2">What will happen:</p>
+                  <ul className="text-xs text-slate-600 space-y-1">
+                    <li className="flex items-center gap-2">
+                      <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                      All {mergeSelectedNames.length} names will display as "<strong>{mergeCanonicalName || '...'}</strong>"
+                    </li>
+                    {updateOriginalData && (
+                      <li className="flex items-center gap-2">
+                        <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                        Google Sheets will be <strong>permanently modified</strong>
+                      </li>
+                    )}
+                    <li className="flex items-center gap-2">
+                      <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                      This change <strong>cannot be undone</strong>
+                    </li>
+                  </ul>
                 </div>
+
+                <label className="flex items-start gap-2 cursor-pointer p-3 bg-slate-50 rounded-lg border-2 border-slate-200 hover:border-slate-300 transition">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    checked={updateOriginalData}
+                    onChange={(e) => setUpdateOriginalData(e.target.checked)}
+                  />
+                  <span className="text-xs text-slate-700 leading-relaxed">
+                    <strong>Update Google Sheets:</strong> Replace all variant names with "{mergeCanonicalName || '...'}" in the original spreadsheet data.
+                  </span>
+                </label>
               </div>
             </div>
 
             {/* Fixed Footer */}
             <div className="p-4 border-t border-slate-100 flex-shrink-0">
+              <p className="text-[10px] text-center text-slate-400 mb-3">
+                By clicking "Confirm Merge", you acknowledge that this action is permanent and cannot be reversed.
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowMergeModal(false)}
-                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-bold rounded-lg hover:bg-slate-50 transition"
+                  disabled={mergeProgress.isProcessing}
+                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-bold rounded-lg hover:bg-slate-50 transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleConfirmMerge}
-                  disabled={!mergeCanonicalName}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg shadow-lg transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!mergeCanonicalName || mergeProgress.isProcessing}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-lg shadow-lg transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Merge Names
+                  {mergeProgress.isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    'Confirm Merge (Permanent)'
+                  )}
                 </button>
               </div>
             </div>

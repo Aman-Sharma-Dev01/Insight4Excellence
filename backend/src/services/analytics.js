@@ -2,11 +2,11 @@ import { googleSheetsService } from './googleSheets.js';
 import { cacheService } from './cache.js';
 import { createNameMapping, applyNameMapping, normalizeName } from './nameNormalizer.js';
 
-// Cache TTL constants (in seconds) - optimized for 20K-25K datasets
-const METADATA_CACHE_TTL = 600;   // 10 minutes (rarely changes)
-const ANALYTICS_CACHE_TTL = 300;  // 5 minutes (computed data)
-const FILTERED_DATA_CACHE_TTL = 180; // 3 minutes (frequent access)
-const NAME_MAPPING_CACHE_TTL = 600; // 10 minutes for name mappings
+// Cache TTL constants (in seconds) - optimized for instant updates
+const METADATA_CACHE_TTL = 30;    // 30 seconds (instant filter updates)
+const ANALYTICS_CACHE_TTL = 20;   // 20 seconds (quick computed data refresh)
+const FILTERED_DATA_CACHE_TTL = 15; // 15 seconds (instant data updates)
+const NAME_MAPPING_CACHE_TTL = 60; // 1 minute for name mappings
 
 /**
  * Likert scale mapping for converting text responses to numeric scores
@@ -59,7 +59,9 @@ const getRatingLabel = (score) => {
 const FILTER_KEYWORDS = [
   'department', 'course', 'year', 'section', 'semester',
   'faculty', 'teacher', 'professor', 'subject', 'gender',
-  'branch', 'batch', 'division', 'program', 'class', 'school'
+  'branch', 'batch', 'division', 'program', 'class', 'school',
+  'name of', 'stream', 'specialization', 'discipline', 'institute',
+  'college', 'campus', 'mode', 'type', 'category', 'group'
 ];
 
 /**
@@ -187,8 +189,10 @@ class AnalyticsService {
         }
       }
 
-      if (uniqueSet.size > 0 && uniqueSet.size <= 5000) {
+      if (uniqueSet.size > 0 && uniqueSet.size <= 10000) {
         filters[header] = Array.from(uniqueSet).sort();
+      } else if (uniqueSet.size > 10000) {
+        console.warn(`[WARN] Filter "${header}" has ${uniqueSet.size} unique values - exceeds 10000 limit, skipping`);
       }
     }
 

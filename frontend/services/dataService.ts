@@ -12,7 +12,8 @@ import {
   RegisterData,
   User,
   UserSheet,
-  UserSettings
+  UserSettings,
+  MergeHistoryEntry
 } from '../types';
 import { API_BASE_URL } from '../constants';
 
@@ -290,6 +291,24 @@ class DataService {
   }
 
   /**
+   * Force refresh all data for a sheet - clears cache and fetches fresh data immediately
+   */
+  async forceRefresh(sheetUrl: string | string[]): Promise<ApiResponse<{ message: string; timestamp: string }>> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sheets/force-refresh`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ url: sheetUrl })
+      });
+
+      return await response.json();
+    } catch (error) {
+      console.error('Force refresh error:', error);
+      return { success: false, error: 'Failed to force refresh' };
+    }
+  }
+
+  /**
    * Check for updates in the sheet (smart refresh)
    * Detects small changes (1-10 rows) for instant refresh
    */
@@ -485,6 +504,48 @@ class DataService {
     } catch (error) {
       console.error('Delete merge error:', error);
       return { success: false, error: 'Failed to delete merge' };
+    }
+  }
+
+  /**
+   * Get merge history for a sheet (for rollback functionality)
+   */
+  async getMergeHistory(sheetId: string): Promise<ApiResponse<MergeHistoryEntry[]>> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/merge-history/${encodeURIComponent(sheetId)}`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+
+      return await response.json();
+    } catch (error) {
+      console.error('Get merge history error:', error);
+      return { success: false, error: 'Failed to get merge history' };
+    }
+  }
+
+  /**
+   * Add entry to merge history
+   */
+  async addMergeHistory(
+    sheetId: string, 
+    action: 'merge' | 'rollback',
+    category: string,
+    canonicalName: string,
+    variants: string[],
+    originalData?: Record<string, string>
+  ): Promise<ApiResponse<MergeHistoryEntry>> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/merge-history/${encodeURIComponent(sheetId)}`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ action, category, canonicalName, variants, originalData })
+      });
+
+      return await response.json();
+    } catch (error) {
+      console.error('Add merge history error:', error);
+      return { success: false, error: 'Failed to add merge history' };
     }
   }
 

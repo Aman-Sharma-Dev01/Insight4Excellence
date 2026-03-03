@@ -279,6 +279,21 @@ export interface UpdateCheckResponse {
   error?: string;
 }
 
+/**
+ * Merge history entry for rollback functionality
+ */
+export interface MergeHistoryEntry {
+  id: string;
+  timestamp: string;
+  action: 'merge' | 'rollback';
+  category: string;
+  canonicalName: string;
+  variants: string[];
+  originalData?: Record<string, string>;
+  rolledBack?: boolean;
+  rolledBackAt?: string;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

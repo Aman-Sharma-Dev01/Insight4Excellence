@@ -182,7 +182,7 @@ router.post('/refresh-cache', authenticateToken, (req, res) => {
 /**
  * POST /api/sheets/check-updates
  * Check if sheet has been updated since last fetch
- * Used for smart refresh: instant for 1-10 changes, cached for larger
+ * Returns update info but does NOT auto-refresh to avoid quota issues
  */
 router.post('/check-updates', authenticateToken, async (req, res) => {
   try {
@@ -197,11 +197,10 @@ router.post('/check-updates', authenticateToken, async (req, res) => {
 
     const updateInfo = await googleSheetsService.checkForUpdates(url);
 
-    // If small change (1-10 rows), automatically refresh cache
-    if (updateInfo.shouldInstantRefresh) {
-      console.log(`Smart refresh: ${updateInfo.delta} new rows detected, refreshing cache...`);
-      await googleSheetsService.refreshCache(url);
-      cacheService.clearForSheet(url); // Clear analytics/metadata caches too
+    // NOTE: We no longer auto-refresh here to avoid quota issues
+    // The frontend will decide when to manually refresh
+    if (updateInfo.hasChanged) {
+      console.log(`[CHECK-UPDATES] ${updateInfo.delta} changes detected (not auto-refreshing to save quota)`);
     }
 
     return res.json({
@@ -220,6 +219,7 @@ router.post('/check-updates', authenticateToken, async (req, res) => {
 /**
  * POST /api/sheets/apply-merge
  * Applies a merge to the Google Sheet by updating all matching rows
+ * After merge, aggressively clears caches for instant updates
  */
 router.post('/apply-merge', authenticateToken, async (req, res) => {
   try {
@@ -232,16 +232,62 @@ router.post('/apply-merge', authenticateToken, async (req, res) => {
       });
     }
 
+    console.log(`[MERGE] Starting merge: ${canonicalName} <- ${variants.length} variants on category "${category}"`);
+    
     const result = await googleSheetsService.applyMerge(url, category, canonicalName, variants);
-    cacheService.clearForSheet(url); // Also clear cache to reflect updates
+    
+    // Aggressive cache clear using new method
+    cacheService.clearAllForSheetOperation(url);
+    
+    console.log(`[MERGE] Completed. Modified: ${result.modified}, Caches cleared for instant update`);
 
     return res.json({
       success: true,
       message: 'Merge applied to Google Sheet successfully',
-      data: result
+      data: result,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Apply merge error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/sheets/force-refresh
+ * Force refresh all cached data for a sheet - clears all caches and fetches fresh data
+ */
+router.post('/force-refresh', authenticateToken, async (req, res) => {
+  try {
+    const { url } = req.body;
+
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sheet URL is required'
+      });
+    }
+
+    console.log(`[FORCE-REFRESH] Clearing all caches and refreshing data...`);
+
+    // Aggressively clear all caches first
+    cacheService.clearAllForSheetOperation(url);
+    
+    // Force refresh by fetching fresh data
+    await googleSheetsService.refreshCache(url);
+
+    console.log(`[FORCE-REFRESH] Completed successfully`);
+
+    return res.json({
+      success: true,
+      message: 'Sheet data refreshed successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Force refresh error:', error);
     return res.status(500).json({
       success: false,
       error: error.message
