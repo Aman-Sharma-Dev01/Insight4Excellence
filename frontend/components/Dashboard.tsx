@@ -8,7 +8,7 @@ import AnalyticsCharts from './AnalyticsCharts';
 import FilteredDataTable from './FilteredDataTable';
 import FacultyScorecard from './FacultyScorecard';
 import { Filter, Download, Database, ChevronDown, ChevronLeft, ChevronRight, User as UserIcon, LogOut, BrainCircuit, Plus, FileText, X, RefreshCw, Clock, Search, AlertCircle, Table, BarChart3, CheckCircle, Award, Users, BookOpen, Layers, PanelLeftClose, PanelLeft, FileSpreadsheet, Star, StarHalf, AlertTriangle, Loader2, PieChart as PieChartIcon } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Cell, Legend, PieChart, Pie } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Cell, Legend, PieChart, Pie, LabelList } from 'recharts';
 import * as XLSX from 'xlsx';
 
 interface DashboardProps {
@@ -1218,7 +1218,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   };
 
   // Export filtered data as formatted Excel with averages and comments
-  const exportFilteredAverageExcel = async (averages: QuestionAverage[] = [], overallAverage: number = 0) => {
+  const exportFilteredAverageExcel = async (averages: QuestionAverage[] = [], overallAverage: number = 0, belowAvgThreshold: number | null = null) => {
     if (!activeSheet) return;
 
     setExporting(true);
@@ -1386,6 +1386,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           ...shortQuestionNames, 'Overall Avg', 'Comments'
         ];
 
+        // Track exported faculty names for filtering raw data
+        const exportedFacultyNames = new Set<string>();
+
         let serialNo = 1;
         Object.entries(facultyGroups).forEach(([faculty, group]) => {
           // Calculate averages
@@ -1397,6 +1400,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           const overallAvg = questionAvgs.length > 0
             ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length
             : 0;
+
+          // Skip this faculty if threshold is set and their average is not below it
+          if (belowAvgThreshold !== null && overallAvg >= belowAvgThreshold) {
+            return; // Skip faculty with average >= threshold
+          }
+
+          // Track this faculty name for raw data filtering
+          exportedFacultyNames.add(group.info['Faculty Name']);
 
           // Format comments with serial numbers
           const formattedComments = group.comments.map((c, i) => `${i + 1}. ${c}`).join('\n');
@@ -1422,9 +1433,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           excelData.push(row);
         });
 
-        // Calculate grand averages for summary row
+        // Calculate grand averages for summary row (only for exported faculty)
         const grandTotals: Record<string, { sum: number; count: number }> = {};
-        Object.values(facultyGroups).forEach(group => {
+        let grandTotalResponses = 0;
+        Object.entries(facultyGroups).forEach(([groupKey, group]) => {
+          // Only include faculty that passed the threshold filter
+          if (!exportedFacultyNames.has(group.info['Faculty Name'])) {
+            return;
+          }
+          grandTotalResponses += group.rowCount;
           Object.entries(group.questionTotals).forEach(([qCol, totals]) => {
             if (!grandTotals[qCol]) {
               grandTotals[qCol] = { sum: 0, count: 0 };
@@ -1441,9 +1458,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const grandOverallAvg = grandQuestionAvgs.length > 0
           ? grandQuestionAvgs.reduce((a, b) => a + b, 0) / grandQuestionAvgs.length
           : 0;
-
-        // Calculate total grand responses
-        const grandTotalResponses = Object.values(facultyGroups).reduce((sum, group) => sum + group.rowCount, 0);
 
         // Add summary row
         const summaryRow: Record<string, unknown> = {
@@ -1468,6 +1482,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           'Code': shortQuestionNames[i],
           'Full Question': q
         }));
+
+        // Check if any data to export (after threshold filter)
+        if (excelData.length === 0) {
+          setError(belowAvgThreshold 
+            ? `No faculty found with overall average below ${belowAvgThreshold}. Try a higher threshold.`
+            : 'No data to export.'
+          );
+          setExporting(false);
+          return;
+        }
 
         // Create workbook
         const wb = XLSX.utils.book_new();
@@ -1512,8 +1536,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         legendWs['!cols'] = [{ wch: 10 }, { wch: 100 }];
         XLSX.utils.book_append_sheet(wb, legendWs, 'Question Legend');
 
-        // Create Raw Data sheet with all filtered data
-        const rawDataSheet: Record<string, unknown>[] = data.map((row, idx) => {
+        // Create Raw Data sheet with filtered data (only for exported faculty if threshold applied)
+        const filteredRawData = belowAvgThreshold !== null
+          ? data.filter(row => {
+              const originalFaculty = facultyCol ? String(row[facultyCol] || '').trim() : 'Unknown';
+              const canonicalName = getCanonicalFacultyName(originalFaculty);
+              return exportedFacultyNames.has(canonicalName);
+            })
+          : data;
+
+        const rawDataSheet: Record<string, unknown>[] = filteredRawData.map((row, idx) => {
           const rawRow: Record<string, unknown> = { 'S.No': idx + 1 };
           headers.forEach(header => {
             rawRow[header] = row[header] ?? '';
@@ -1529,7 +1561,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         // Download
         const filterCount = Object.values(filterState).filter((v: any) => v && v.length > 0).length;
         const suffix = filterCount > 0 ? '_filtered' : '_all';
-        const fileName = `${activeSheet.name.replace(/\s+/g, '_')}_report${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        const thresholdSuffix = belowAvgThreshold !== null ? `_below${belowAvgThreshold}` : '';
+        const fileName = `${activeSheet.name.replace(/\s+/g, '_')}_report${suffix}${thresholdSuffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
         XLSX.writeFile(wb, fileName);
       }
@@ -2401,6 +2434,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                             fill={q.avg >= 4.0 ? 'url(#barGradientGreen)' : q.avg >= 3.5 ? 'url(#barGradientBlue)' : q.avg >= 3.0 ? 'url(#barGradientAmber)' : 'url(#barGradientRed)'}
                                           />
                                         ))}
+                                        <LabelList
+                                          dataKey="score"
+                                          position="top"
+                                          formatter={(value: number) => value.toFixed(1)}
+                                          style={{ fontSize: 11, fontWeight: 700, fill: '#374151' }}
+                                        />
                                       </Bar>
                                     </BarChart>
                                   </ResponsiveContainer>

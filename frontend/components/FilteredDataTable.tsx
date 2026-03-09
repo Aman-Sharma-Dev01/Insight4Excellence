@@ -16,7 +16,7 @@ interface FilteredDataTableProps {
   loading: boolean;
   onPageChange: (page: number) => void;
   onExportCSV: (includeAverages: boolean, averages: QuestionAverage[], overallAverage: number) => void;
-  onExportAverageExcel?: (averages: QuestionAverage[], overallAverage: number) => void;
+  onExportAverageExcel?: (averages: QuestionAverage[], overallAverage: number, belowAvgThreshold?: number | null) => void;
   exporting: boolean;
   fetchAllData?: () => Promise<FilteredDataRow[]>; // Function to fetch all filtered data
 }
@@ -38,6 +38,7 @@ const FilteredDataTable: React.FC<FilteredDataTableProps> = ({
   const [calculatingAverages, setCalculatingAverages] = React.useState(false);
   const [showExportModal, setShowExportModal] = React.useState(false);
   const [exportAveragesCalculating, setExportAveragesCalculating] = React.useState(false);
+  const [belowAvgThreshold, setBelowAvgThreshold] = React.useState<number | null>(null); // Filter for faculty below this avg
 
   // Handle export with options
   const handleExportClick = () => {
@@ -62,7 +63,7 @@ const FilteredDataTable: React.FC<FilteredDataTableProps> = ({
 
     // Always use Excel export which combines summary + raw data
     if (onExportAverageExcel) {
-      onExportAverageExcel(exportAverages, exportOverallAverage);
+      onExportAverageExcel(exportAverages, exportOverallAverage, belowAvgThreshold);
     } else {
       // Fallback to CSV if Excel export not available
       onExportCSV(true, exportAverages, exportOverallAverage);
@@ -434,6 +435,59 @@ const FilteredDataTable: React.FC<FilteredDataTableProps> = ({
                           <span><strong>Raw Data</strong> - All {pagination.totalRows.toLocaleString()} filtered records</span>
                         </li>
                       </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Below Average Filter */}
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <TrendingUp className="w-5 h-5 text-amber-600 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-700">Filter by Overall Average</p>
+                      <p className="text-xs text-slate-600 mt-1 mb-3">
+                        Export only faculty with overall average below a threshold (optional)
+                      </p>
+                      <div className="flex gap-2 items-center">
+                        <select
+                          value={belowAvgThreshold ?? ''}
+                          onChange={(e) => setBelowAvgThreshold(e.target.value ? parseFloat(e.target.value) : null)}
+                          className="flex-1 px-3 py-2 border border-amber-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                        >
+                          <option value="">All Faculty (No Filter)</option>
+                          <option value="4">Below 4.0</option>
+                          <option value="3.5">Below 3.5</option>
+                          <option value="3">Below 3.0</option>
+                          <option value="2.5">Below 2.5</option>
+                          <option value="2">Below 2.0</option>
+                        </select>
+                        <span className="text-xs text-slate-500">or</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="5"
+                          step="0.1"
+                          placeholder="Custom"
+                          value={belowAvgThreshold ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                              setBelowAvgThreshold(null);
+                            } else {
+                              const num = parseFloat(val);
+                              if (!isNaN(num) && num >= 1 && num <= 5) {
+                                setBelowAvgThreshold(num);
+                              }
+                            }
+                          }}
+                          className="w-20 px-3 py-2 border border-amber-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-center"
+                        />
+                      </div>
+                      {belowAvgThreshold && (
+                        <p className="text-[10px] text-amber-700 mt-2">
+                          Only faculty with overall average &lt; {belowAvgThreshold} will be exported
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
