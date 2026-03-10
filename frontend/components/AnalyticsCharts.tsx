@@ -15,10 +15,10 @@ interface ChartsProps {
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 const RATING_COLORS = {
-  excellent: '#10b981',
-  good: '#3b82f6',
-  average: '#f59e0b',
-  poor: '#ef4444'
+  exceptional: '#10b981',
+  outstanding: '#3b82f6',
+  good: '#f59e0b',
+  average: '#ef4444'
 };
 
 const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
@@ -75,10 +75,10 @@ const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
 
   // Get color based on score
   const getScoreColor = (score: number) => {
-    if (score >= 4.5) return RATING_COLORS.excellent;
-    if (score >= 3.5) return RATING_COLORS.good;
-    if (score >= 3.0) return RATING_COLORS.average;
-    return RATING_COLORS.poor;
+    if (score >= 4.81) return RATING_COLORS.exceptional;
+    if (score >= 4.41) return RATING_COLORS.outstanding;
+    if (score >= 4.00) return RATING_COLORS.good;
+    return RATING_COLORS.average;
   };
 
   const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
@@ -257,10 +257,10 @@ const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
               <PieChart>
                 <Pie
                   data={[
-                    { name: 'Excellent (≥4.5)', value: facultyScores.filter(f => f.score >= 4.5).length, color: RATING_COLORS.excellent },
-                    { name: 'Good (3.5-4.5)', value: facultyScores.filter(f => f.score >= 3.5 && f.score < 4.5).length, color: RATING_COLORS.good },
-                    { name: 'Average (3.0-3.5)', value: facultyScores.filter(f => f.score >= 3.0 && f.score < 3.5).length, color: RATING_COLORS.average },
-                    { name: 'Needs Improvement (<3.0)', value: facultyScores.filter(f => f.score < 3.0).length, color: RATING_COLORS.poor }
+                    { name: 'Exceptional (4.81-5.00)', value: facultyScores.filter(f => f.score >= 4.81).length, color: RATING_COLORS.exceptional },
+                    { name: 'Outstanding (4.41-4.80)', value: facultyScores.filter(f => f.score >= 4.41 && f.score < 4.81).length, color: RATING_COLORS.outstanding },
+                    { name: 'Good (4.00-4.40)', value: facultyScores.filter(f => f.score >= 4.00 && f.score < 4.41).length, color: RATING_COLORS.good },
+                    { name: 'Average (1.00-3.99)', value: facultyScores.filter(f => f.score < 4.00).length, color: RATING_COLORS.average }
                   ].filter(d => d.value > 0)}
                   cx="50%"
                   cy="50%"
@@ -271,10 +271,10 @@ const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
                   label={({ name, value }) => `${value}`}
                 >
                   {[
-                    { name: 'Excellent', color: RATING_COLORS.excellent },
+                    { name: 'Exceptional', color: RATING_COLORS.exceptional },
+                    { name: 'Outstanding', color: RATING_COLORS.outstanding },
                     { name: 'Good', color: RATING_COLORS.good },
-                    { name: 'Average', color: RATING_COLORS.average },
-                    { name: 'Poor', color: RATING_COLORS.poor }
+                    { name: 'Average', color: RATING_COLORS.average }
                   ].map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}

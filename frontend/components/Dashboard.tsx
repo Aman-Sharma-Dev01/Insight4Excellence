@@ -123,6 +123,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [facultyAverages, setFacultyAverages] = React.useState<{
     questionScores: { name: string; fullName: string; avg: number }[];
     overallAvg: number;
+    totalResponses: number;
     facultyName: string;
     school: string;
     department: string;
@@ -543,9 +544,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             ? questionScores.reduce((a, b) => a + b.avg, 0) / questionScores.length
             : 0;
 
+          // Total responses count
+          const totalResponseCount = data.length;
+
           setFacultyAverages({
             questionScores,
             overallAvg,
+            totalResponses: totalResponseCount,
             facultyName,
             school,
             department,
@@ -1380,10 +1385,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const excelData: Record<string, unknown>[] = [];
         const shortQuestionNames = questionColumns.map((q, i) => `Q${i + 1}`);
 
+        // Calculate total students (total responses across all data)
+        const totalStudents = Object.values(facultyGroups).reduce((sum, group) => sum + group.rowCount, 0);
+
         // Headers for the main data
         const mainHeaders = [
           'S.No', 'Faculty Name', 'School', 'Department', 'Semester', 'Section', 'Course Name', 'Total Responses',
-          ...shortQuestionNames, 'Overall Avg', 'Comments'
+          ...shortQuestionNames, 'Overall Avg', 'Weighted Avg', 'Comments'
         ];
 
         // Track exported faculty names for filtering raw data
@@ -1409,6 +1417,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           // Track this faculty name for raw data filtering
           exportedFacultyNames.add(group.info['Faculty Name']);
 
+          // Calculate weighted average: (Subject total responses × overall feedback) / total no. of students
+          const weightedAvg = totalStudents > 0 ? (group.rowCount * overallAvg) / totalStudents : 0;
+
           // Format comments with serial numbers
           const formattedComments = group.comments.map((c, i) => `${i + 1}. ${c}`).join('\n');
 
@@ -1422,6 +1433,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'Course Name': group.info['Course Name'],
             'Total Responses': group.rowCount,
             'Overall Avg': overallAvg.toFixed(1),
+            'Weighted Avg': weightedAvg.toFixed(2),
             'Comments': formattedComments
           };
 
@@ -1459,6 +1471,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           ? grandQuestionAvgs.reduce((a, b) => a + b, 0) / grandQuestionAvgs.length
           : 0;
 
+        // Calculate grand weighted average (sum of all individual weighted averages)
+        let grandWeightedAvg = 0;
+        Object.entries(facultyGroups).forEach(([groupKey, group]) => {
+          if (exportedFacultyNames.has(group.info['Faculty Name'])) {
+            const questionAvgs = questionColumns.map(qCol => {
+              const totals = group.questionTotals[qCol];
+              return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+            });
+            const avgScore = questionAvgs.length > 0 ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length : 0;
+            grandWeightedAvg += totalStudents > 0 ? (group.rowCount * avgScore) / totalStudents : 0;
+          }
+        });
+
         // Add summary row
         const summaryRow: Record<string, unknown> = {
           'S.No': '',
@@ -1470,6 +1495,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           'Course Name': '',
           'Total Responses': grandTotalResponses,
           'Overall Avg': grandOverallAvg.toFixed(1),
+          'Weighted Avg': grandWeightedAvg.toFixed(2),
           'Comments': ''
         };
         questionColumns.forEach((qCol, i) => {
@@ -2263,8 +2289,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           <div className="space-y-3 mb-4">
                             {facultyAverages.questionScores.map((q, idx) => {
                               const score = q.avg;
-                              const color = score >= 4.0 ? 'emerald' : score >= 3.5 ? 'blue' : score >= 3.0 ? 'amber' : 'red';
-                              const status = score >= 4.0 ? 'Excellent' : score >= 3.5 ? 'Good' : score >= 3.0 ? 'Average' : 'Needs Improvement';
+                              const color = score >= 4.81 ? 'emerald' : score >= 4.41 ? 'blue' : score >= 4.0 ? 'amber' : 'red';
+                              const status = score >= 4.81 ? 'Exceptional' : score >= 4.41 ? 'Outstanding' : score >= 4.0 ? 'Good' : 'Average';
                               return (
                                 <div
                                   key={idx}
@@ -2336,13 +2362,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <span className="text-emerald-200 text-lg mb-1">/5.0</span>
                                   </div>
                                 </div>
+                                <div className="bg-white/20 rounded-lg px-4 py-2 backdrop-blur-sm text-center">
+                                  <p className="text-white text-xl font-bold">{facultyAverages.overallAvg.toFixed(2)}</p>
+                                  <p className="text-emerald-100 text-[10px] uppercase tracking-wide">Weighted Avg</p>
+                                </div>
                                 <div className="text-right">
                                   <p className="text-emerald-100 text-sm">
-                                    {facultyAverages.overallAvg >= 4.5 ? '🌟 Outstanding!' :
-                                     facultyAverages.overallAvg >= 4.0 ? '✨ Excellent!' :
-                                     facultyAverages.overallAvg >= 3.5 ? '👍 Good' :
-                                     facultyAverages.overallAvg >= 3.0 ? '📈 Average' :
-                                     '⚠️ Needs Improvement'}
+                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional!' :
+                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding!' :
+                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good' :
+                                     '📈 Average'}
                                   </p>
                                 </div>
                               </div>
@@ -2354,13 +2383,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {scorecardViewMode === 'graph' && (
                           <div className="space-y-6 mb-4">
                             {/* Charts Grid */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                               {/* Bar Chart - Per Question Scores */}
-                              <div className="bg-white rounded-xl p-5 border border-emerald-100 shadow-lg">
-                                <h4 className="text-sm font-bold text-emerald-700 mb-4 flex items-center gap-2">
-                                  <BarChart3 className="w-4 h-4" /> Per-Question Performance
+                              <div className="lg:col-span-2 bg-white rounded-xl p-6 border border-slate-200 shadow-lg">
+                                <h4 className="text-base font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                  <BarChart3 className="w-5 h-5 text-emerald-600" /> Per-Question Performance
                                 </h4>
-                                <div className="h-72">
+                                <div className="h-80">
                                   <ResponsiveContainer width="100%" height="100%">
                                     <BarChart
                                       data={facultyAverages.questionScores.map(q => ({
@@ -2368,48 +2397,48 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         fullName: q.fullName,
                                         score: q.avg
                                       }))}
-                                      margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
+                                      margin={{ top: 25, right: 30, left: 10, bottom: 10 }}
                                     >
                                       <defs>
                                         <linearGradient id="barGradientGreen" x1="0" y1="0" x2="0" y2="1">
                                           <stop offset="0%" stopColor="#10b981" stopOpacity={1}/>
-                                          <stop offset="100%" stopColor="#059669" stopOpacity={0.8}/>
+                                          <stop offset="100%" stopColor="#059669" stopOpacity={0.9}/>
                                         </linearGradient>
                                         <linearGradient id="barGradientBlue" x1="0" y1="0" x2="0" y2="1">
                                           <stop offset="0%" stopColor="#3b82f6" stopOpacity={1}/>
-                                          <stop offset="100%" stopColor="#2563eb" stopOpacity={0.8}/>
+                                          <stop offset="100%" stopColor="#2563eb" stopOpacity={0.9}/>
                                         </linearGradient>
                                         <linearGradient id="barGradientAmber" x1="0" y1="0" x2="0" y2="1">
                                           <stop offset="0%" stopColor="#f59e0b" stopOpacity={1}/>
-                                          <stop offset="100%" stopColor="#d97706" stopOpacity={0.8}/>
+                                          <stop offset="100%" stopColor="#d97706" stopOpacity={0.9}/>
                                         </linearGradient>
                                         <linearGradient id="barGradientRed" x1="0" y1="0" x2="0" y2="1">
                                           <stop offset="0%" stopColor="#ef4444" stopOpacity={1}/>
-                                          <stop offset="100%" stopColor="#dc2626" stopOpacity={0.8}/>
+                                          <stop offset="100%" stopColor="#dc2626" stopOpacity={0.9}/>
                                         </linearGradient>
                                       </defs>
                                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                                       <XAxis 
                                         dataKey="name" 
-                                        tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
+                                        tick={{ fontSize: 13, fill: '#374151', fontWeight: 600 }}
                                         axisLine={{ stroke: '#e5e7eb' }}
                                         tickLine={false}
                                       />
                                       <YAxis 
                                         domain={[0, 5]} 
-                                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                                        tick={{ fontSize: 12, fill: '#6b7280' }}
                                         axisLine={false}
                                         tickLine={false}
                                         ticks={[0, 1, 2, 3, 4, 5]}
                                       />
                                       <Tooltip
-                                        cursor={{ fill: 'rgba(16, 185, 129, 0.1)' }}
+                                        cursor={{ fill: 'rgba(16, 185, 129, 0.08)' }}
                                         content={({ active, payload }) => {
                                           if (active && payload && payload.length) {
                                             const data = payload[0].payload;
                                             const score = data.score;
-                                            const color = score >= 4.0 ? '#10b981' : score >= 3.5 ? '#3b82f6' : score >= 3.0 ? '#f59e0b' : '#ef4444';
-                                            const status = score >= 4.0 ? 'Excellent' : score >= 3.5 ? 'Good' : score >= 3.0 ? 'Average' : 'Needs Improvement';
+                                            const color = score >= 4.81 ? '#10b981' : score >= 4.41 ? '#3b82f6' : score >= 4.0 ? '#f59e0b' : '#ef4444';
+                                            const status = score >= 4.81 ? 'Exceptional' : score >= 4.41 ? 'Outstanding' : score >= 4.0 ? 'Good' : 'Average';
                                             return (
                                               <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 max-w-xs">
                                                 <div className="flex items-center gap-2 mb-2">
@@ -2427,97 +2456,105 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                           return null;
                                         }}
                                       />
-                                      <Bar dataKey="score" radius={[8, 8, 0, 0]} maxBarSize={60}>
+                                      <Bar dataKey="score" radius={[10, 10, 0, 0]} maxBarSize={70}>
                                         {facultyAverages.questionScores.map((q, index) => (
                                           <Cell
                                             key={`cell-${index}`}
-                                            fill={q.avg >= 4.0 ? 'url(#barGradientGreen)' : q.avg >= 3.5 ? 'url(#barGradientBlue)' : q.avg >= 3.0 ? 'url(#barGradientAmber)' : 'url(#barGradientRed)'}
+                                            fill={q.avg >= 4.81 ? 'url(#barGradientGreen)' : q.avg >= 4.41 ? 'url(#barGradientBlue)' : q.avg >= 4.0 ? 'url(#barGradientAmber)' : 'url(#barGradientRed)'}
                                           />
                                         ))}
                                         <LabelList
                                           dataKey="score"
                                           position="top"
                                           formatter={(value: number) => value.toFixed(1)}
-                                          style={{ fontSize: 11, fontWeight: 700, fill: '#374151' }}
+                                          style={{ fontSize: 13, fontWeight: 700, fill: '#111827' }}
                                         />
                                       </Bar>
                                     </BarChart>
                                   </ResponsiveContainer>
                                 </div>
-                                {/* Legend */}
-                                <div className="flex items-center justify-center gap-4 mt-3 text-xs">
-                                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> ≥4.0 Excellent</span>
-                                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-blue-500"></div> ≥3.5 Good</span>
-                                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-amber-500"></div> ≥3.0 Average</span>
-                                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-red-500"></div> &lt;3.0 Low</span>
-                                </div>
                               </div>
 
-                              {/* Radar Chart - Visual Performance Spider */}
-                              <div className="bg-white rounded-xl p-5 border border-emerald-100 shadow-lg">
-                                <h4 className="text-sm font-bold text-emerald-700 mb-4 flex items-center gap-2">
-                                  <Award className="w-4 h-4" /> Performance Radar
-                                </h4>
-                                <div className="h-72">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <RadarChart
-                                      data={facultyAverages.questionScores.map(q => ({
-                                        question: q.name,
-                                        fullName: q.fullName,
-                                        score: q.avg,
-                                        fullMark: 5
-                                      }))}
-                                    >
-                                      <defs>
-                                        <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
-                                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8}/>
-                                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.3}/>
-                                        </linearGradient>
-                                      </defs>
-                                      <PolarGrid stroke="#d1d5db" strokeDasharray="3 3" />
-                                      <PolarAngleAxis 
-                                        dataKey="question" 
-                                        tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
-                                      />
-                                      <PolarRadiusAxis 
-                                        angle={90} 
-                                        domain={[0, 5]} 
-                                        tick={{ fontSize: 10, fill: '#9ca3af' }}
-                                        axisLine={false}
-                                      />
-                                      <Radar
-                                        name="Score"
-                                        dataKey="score"
-                                        stroke="#10b981"
-                                        fill="url(#radarGradient)"
-                                        fillOpacity={0.6}
-                                        strokeWidth={3}
-                                        dot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
-                                      />
-                                      <Tooltip
-                                        content={({ active, payload }) => {
-                                          if (active && payload && payload.length) {
-                                            const data = payload[0].payload;
-                                            const score = data.score;
-                                            const color = score >= 4.0 ? '#10b981' : score >= 3.5 ? '#3b82f6' : score >= 3.0 ? '#f59e0b' : '#ef4444';
-                                            return (
-                                              <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 max-w-xs">
-                                                <div className="flex items-center gap-2 mb-2">
-                                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
-                                                  <span className="font-bold text-slate-800">{data.question}</span>
-                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
-                                                </div>
-                                                <p className="text-xs text-slate-600 leading-relaxed">{data.fullName}</p>
-                                              </div>
-                                            );
-                                          }
-                                          return null;
-                                        }}
-                                      />
-                                    </RadarChart>
-                                  </ResponsiveContainer>
+                              {/* Performance Band Reference Box */}
+                              <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                <div className="bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-4">
+                                  <h4 className="text-base font-bold text-amber-900 flex items-center gap-2">
+                                    <Award className="w-5 h-5" /> Performance Band
+                                  </h4>
                                 </div>
-                                <p className="text-center text-xs text-slate-500 mt-2">Hover over points to see question details</p>
+                                <div className="p-4">
+                                  <table className="w-full text-sm">
+                                    <thead>
+                                      <tr className="border-b border-slate-200">
+                                        <th className="text-left py-2 px-2 font-semibold text-slate-700">Scale</th>
+                                        <th className="text-left py-2 px-2 font-semibold text-slate-700">Descriptor</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <tr className="border-b border-slate-100 hover:bg-slate-50">
+                                        <td className="py-3 px-2">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                                            <span className="font-semibold text-slate-800">4.81-5.00</span>
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-2">
+                                          <div>
+                                            <span className="font-bold text-emerald-700">Exceptional</span>
+                                            <p className="text-xs text-slate-500 mt-0.5">Flawless Execution; Exemplary Contribution</p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      <tr className="border-b border-slate-100 hover:bg-slate-50">
+                                        <td className="py-3 px-2">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                                            <span className="font-semibold text-slate-800">4.41-4.80</span>
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-2">
+                                          <div>
+                                            <span className="font-bold text-blue-700">Outstanding</span>
+                                            <p className="text-xs text-slate-500 mt-0.5">High Level Performance with significant measurable impact</p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      <tr className="border-b border-slate-100 hover:bg-slate-50">
+                                        <td className="py-3 px-2">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+                                            <span className="font-semibold text-slate-800">4.00-4.40</span>
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-2">
+                                          <div>
+                                            <span className="font-bold text-amber-700">Good</span>
+                                            <p className="text-xs text-slate-500 mt-0.5">Solidly meets requirements; Consistently high quality</p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      <tr className="hover:bg-slate-50">
+                                        <td className="py-3 px-2">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                                            <span className="font-semibold text-slate-800">1.00-3.99</span>
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-2">
+                                          <div>
+                                            <span className="font-bold text-red-700">Average</span>
+                                            <p className="text-xs text-slate-500 mt-0.5">Needs Improvement</p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                  <div className="mt-4 pt-4 border-t border-slate-100">
+                                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                                      <span className="font-semibold text-slate-700">Quality Circle Scorecard</span> – A standardized academic quality document based on structured peer review and validated student feedback.
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             </div>
 
@@ -2531,15 +2568,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <span className="text-emerald-200 text-xl mb-2">/5.0</span>
                                   </div>
                                   <p className="text-emerald-100 text-sm mt-2">
-                                    {facultyAverages.overallAvg >= 4.5 ? '🌟 Outstanding Performance!' :
-                                     facultyAverages.overallAvg >= 4.0 ? '✨ Excellent Performance!' :
-                                     facultyAverages.overallAvg >= 3.5 ? '👍 Good Performance' :
-                                     facultyAverages.overallAvg >= 3.0 ? '📈 Average Performance' :
-                                     '⚠️ Needs Improvement'}
+                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
                                   </p>
                                 </div>
                                 {/* Mini stats */}
-                                <div className="grid grid-cols-2 gap-4 text-center">
+                                <div className="grid grid-cols-3 gap-4 text-center">
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
                                     <p className="text-white text-2xl font-bold">
                                       {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
@@ -2551,6 +2587,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
                                     </p>
                                     <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
+                                  </div>
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">
+                                      {facultyAverages.overallAvg.toFixed(2)}
+                                    </p>
+                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
                                 </div>
                               </div>
@@ -2644,16 +2686,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                       </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                      {q.score >= 4.5 ? (
-                                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full">Excellent</span>
+                                      {q.score >= 4.81 ? (
+                                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full">Exceptional</span>
+                                      ) : q.score >= 4.41 ? (
+                                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">Outstanding</span>
                                       ) : q.score >= 4.0 ? (
-                                        <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">Very Good</span>
-                                      ) : q.score >= 3.5 ? (
-                                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">Good</span>
-                                      ) : q.score >= 3.0 ? (
-                                        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">Satisfactory</span>
+                                        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">Good</span>
                                       ) : (
-                                        <span className="px-2 py-1 bg-rose-100 text-rose-700 text-[10px] font-bold rounded-full">Needs Attention</span>
+                                        <span className="px-2 py-1 bg-rose-100 text-rose-700 text-[10px] font-bold rounded-full">Average</span>
                                       )}
                                     </td>
                                   </tr>

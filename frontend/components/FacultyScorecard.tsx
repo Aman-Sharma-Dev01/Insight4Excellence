@@ -76,10 +76,9 @@ const FacultyScorecard: React.FC<FacultyScorecardProps> = ({ data, searchQuery =
   const getScoreBar = (score: number) => {
     const percentage = (score / 5) * 100;
     let bgColor = 'bg-red-500';
-    if (score >= 4.5) bgColor = 'bg-emerald-500';
-    else if (score >= 4.0) bgColor = 'bg-green-500';
-    else if (score >= 3.5) bgColor = 'bg-blue-500';
-    else if (score >= 3.0) bgColor = 'bg-amber-500';
+    if (score >= 4.81) bgColor = 'bg-emerald-500';
+    else if (score >= 4.41) bgColor = 'bg-blue-500';
+    else if (score >= 4.0) bgColor = 'bg-amber-500';
 
     return (
       <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -136,21 +135,21 @@ const FacultyScorecard: React.FC<FacultyScorecardProps> = ({ data, searchQuery =
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-emerald-600">
-            {rankedFaculty.filter(f => f.score >= 4.0).length}
+            {rankedFaculty.filter(f => f.score >= 4.41).length}
           </p>
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Above 4.0</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wide">Outstanding+</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-amber-600">
-            {rankedFaculty.filter(f => f.score >= 3.0 && f.score < 4.0).length}
+            {rankedFaculty.filter(f => f.score >= 4.0 && f.score < 4.41).length}
           </p>
-          <p className="text-xs text-slate-500 uppercase tracking-wide">3.0 - 4.0</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wide">Good</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-red-600">
-            {rankedFaculty.filter(f => f.score < 3.0).length}
+            {rankedFaculty.filter(f => f.score < 4.0).length}
           </p>
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Below 3.0</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wide">Average</p>
         </div>
       </div>
 
