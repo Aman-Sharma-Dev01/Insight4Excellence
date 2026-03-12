@@ -123,6 +123,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const [facultyAverages, setFacultyAverages] = React.useState<{
     questionScores: { name: string; fullName: string; avg: number }[];
     overallAvg: number;
+    weightedAvg: number;
     totalResponses: number;
     facultyName: string;
     school: string;
@@ -130,6 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     course: string;
     section: string;
     comments: string[];
+    sectionScores: { section: string; bestScore: number; lowestScore: number; studentCount: number }[];
   } | null>(null);
 
   // Merge operation progress state
@@ -499,6 +501,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           const uniqueCourses = new Set<string>();
           const uniqueSections = new Set<string>();
 
+          // Track per-section data for weighted average calculation
+          const sectionData: Record<string, { studentCount: number; questionTotals: Record<string, { sum: number; count: number }> }> = {};
+
           data.forEach((row, idx) => {
             // Get metadata from first row
             if (idx === 0) {
@@ -508,17 +513,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
             // Collect unique courses and sections
             if (courseCol && row[courseCol]) uniqueCourses.add(String(row[courseCol]));
+            const currentSection = sectionCol ? String(row[sectionCol] || 'default') : 'default';
             if (sectionCol && row[sectionCol]) uniqueSections.add(String(row[sectionCol]));
 
-            // Collect question scores
+            // Initialize section data if needed
+            if (!sectionData[currentSection]) {
+              sectionData[currentSection] = { studentCount: 0, questionTotals: {} };
+            }
+            sectionData[currentSection].studentCount++;
+
+            // Collect question scores (both for overall and per-section)
             questionColumns.forEach(qCol => {
               const val = Number(row[qCol]);
               if (!isNaN(val)) {
+                // Overall totals
                 if (!questionTotals[qCol]) {
                   questionTotals[qCol] = { sum: 0, count: 0 };
                 }
                 questionTotals[qCol].sum += val;
                 questionTotals[qCol].count += 1;
+
+                // Per-section totals
+                if (!sectionData[currentSection].questionTotals[qCol]) {
+                  sectionData[currentSection].questionTotals[qCol] = { sum: 0, count: 0 };
+                }
+                sectionData[currentSection].questionTotals[qCol].sum += val;
+                sectionData[currentSection].questionTotals[qCol].count += 1;
               }
             });
 
@@ -544,19 +564,62 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             ? questionScores.reduce((a, b) => a + b.avg, 0) / questionScores.length
             : 0;
 
+          // Calculate weighted average based on sections
+          // Formula: sum(section_students * section_overall_avg) / total_students
+          let weightedSum = 0;
+          let totalStudents = 0;
+          const sectionCount = Object.keys(sectionData).length;
+
+          Object.values(sectionData).forEach(section => {
+            // Calculate this section's overall average
+            const sectionQuestionAvgs = questionColumns.map(qCol => {
+              const totals = section.questionTotals[qCol];
+              return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+            });
+            const sectionOverallAvg = sectionQuestionAvgs.length > 0
+              ? sectionQuestionAvgs.reduce((a, b) => a + b, 0) / sectionQuestionAvgs.length
+              : 0;
+            
+            weightedSum += section.studentCount * sectionOverallAvg;
+            totalStudents += section.studentCount;
+          });
+
+          // If only one section, weighted avg equals overall avg
+          // If multiple sections, use the weighted formula
+          const weightedAvg = sectionCount === 1 || totalStudents === 0
+            ? overallAvg
+            : weightedSum / totalStudents;
+
+          // Calculate section-wise best and lowest scores
+          const sectionScores = Object.entries(sectionData).map(([sectionName, section]) => {
+            const sectionQuestionAvgs = questionColumns.map(qCol => {
+              const totals = section.questionTotals[qCol];
+              return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+            });
+            const validAvgs = sectionQuestionAvgs.filter(avg => avg > 0);
+            return {
+              section: sectionName === 'default' ? 'All' : sectionName,
+              bestScore: validAvgs.length > 0 ? Math.max(...validAvgs) : 0,
+              lowestScore: validAvgs.length > 0 ? Math.min(...validAvgs) : 0,
+              studentCount: section.studentCount
+            };
+          });
+
           // Total responses count
           const totalResponseCount = data.length;
 
           setFacultyAverages({
             questionScores,
             overallAvg,
+            weightedAvg,
             totalResponses: totalResponseCount,
             facultyName,
             school,
             department,
             course,
             section,
-            comments
+            comments,
+            sectionScores
           });
         }
       } catch (err) {
@@ -1385,14 +1448,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const excelData: Record<string, unknown>[] = [];
         const shortQuestionNames = questionColumns.map((q, i) => `Q${i + 1}`);
 
-        // Calculate total students (total responses across all data)
-        const totalStudents = Object.values(facultyGroups).reduce((sum, group) => sum + group.rowCount, 0);
+        // Check if any filters are applied
+        const hasFiltersApplied = Object.values(filterState).some((v: any) => v && v.length > 0);
 
-        // Headers for the main data
+        // Headers for the main data (conditionally include Weighted Avg only when filters applied)
         const mainHeaders = [
           'S.No', 'Faculty Name', 'School', 'Department', 'Semester', 'Section', 'Course Name', 'Total Responses',
-          ...shortQuestionNames, 'Overall Avg', 'Weighted Avg', 'Comments'
+          ...shortQuestionNames, 'Overall Avg', ...(hasFiltersApplied ? ['Weighted Avg'] : []), 'Comments'
         ];
+
+        // Group sections by faculty name for weighted average calculation
+        const facultyTotals: Record<string, { totalStudents: number; weightedSum: number; sections: string[] }> = {};
+        Object.entries(facultyGroups).forEach(([groupKey, group]) => {
+          const facultyName = group.info['Faculty Name'];
+          const section = group.info['Section'];
+          
+          // Calculate this section's overall average
+          const questionAvgs = questionColumns.map(qCol => {
+            const totals = group.questionTotals[qCol];
+            return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+          });
+          const sectionOverallAvg = questionAvgs.length > 0
+            ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length
+            : 0;
+          
+          if (!facultyTotals[facultyName]) {
+            facultyTotals[facultyName] = { totalStudents: 0, weightedSum: 0, sections: [] };
+          }
+          facultyTotals[facultyName].totalStudents += group.rowCount;
+          facultyTotals[facultyName].weightedSum += group.rowCount * sectionOverallAvg;
+          if (section) facultyTotals[facultyName].sections.push(section);
+        });
 
         // Track exported faculty names for filtering raw data
         const exportedFacultyNames = new Set<string>();
@@ -1417,8 +1503,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           // Track this faculty name for raw data filtering
           exportedFacultyNames.add(group.info['Faculty Name']);
 
-          // Calculate weighted average: (Subject total responses × overall feedback) / total no. of students
-          const weightedAvg = totalStudents > 0 ? (group.rowCount * overallAvg) / totalStudents : 0;
+          // Calculate weighted average for this faculty across all their sections
+          // Formula: sum(section_students * section_avg) / total_faculty_students
+          const facultyData = facultyTotals[group.info['Faculty Name']];
+          const weightedAvg = facultyData && facultyData.totalStudents > 0 
+            ? facultyData.weightedSum / facultyData.totalStudents 
+            : overallAvg;
 
           // Format comments with serial numbers
           const formattedComments = group.comments.map((c, i) => `${i + 1}. ${c}`).join('\n');
@@ -1433,7 +1523,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'Course Name': group.info['Course Name'],
             'Total Responses': group.rowCount,
             'Overall Avg': overallAvg.toFixed(1),
-            'Weighted Avg': weightedAvg.toFixed(2),
+            ...(hasFiltersApplied ? { 'Weighted Avg': weightedAvg.toFixed(1) } : {}),
             'Comments': formattedComments
           };
 
@@ -1471,18 +1561,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           ? grandQuestionAvgs.reduce((a, b) => a + b, 0) / grandQuestionAvgs.length
           : 0;
 
-        // Calculate grand weighted average (sum of all individual weighted averages)
-        let grandWeightedAvg = 0;
+        // Calculate grand weighted average (weighted sum across all exported faculty)
+        // Formula: sum(faculty_students * faculty_overall_avg) / total_all_students
+        let grandWeightedSum = 0;
+        let grandTotalStudentsForWeighted = 0;
+        const processedFaculty = new Set<string>();
         Object.entries(facultyGroups).forEach(([groupKey, group]) => {
-          if (exportedFacultyNames.has(group.info['Faculty Name'])) {
-            const questionAvgs = questionColumns.map(qCol => {
-              const totals = group.questionTotals[qCol];
-              return totals && totals.count > 0 ? totals.sum / totals.count : 0;
-            });
-            const avgScore = questionAvgs.length > 0 ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length : 0;
-            grandWeightedAvg += totalStudents > 0 ? (group.rowCount * avgScore) / totalStudents : 0;
+          const facultyName = group.info['Faculty Name'];
+          if (exportedFacultyNames.has(facultyName) && !processedFaculty.has(facultyName)) {
+            processedFaculty.add(facultyName);
+            const facultyData = facultyTotals[facultyName];
+            if (facultyData) {
+              grandWeightedSum += facultyData.weightedSum;
+              grandTotalStudentsForWeighted += facultyData.totalStudents;
+            }
           }
         });
+        const grandWeightedAvg = grandTotalStudentsForWeighted > 0 
+          ? grandWeightedSum / grandTotalStudentsForWeighted 
+          : grandOverallAvg;
 
         // Add summary row
         const summaryRow: Record<string, unknown> = {
@@ -1495,7 +1592,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           'Course Name': '',
           'Total Responses': grandTotalResponses,
           'Overall Avg': grandOverallAvg.toFixed(1),
-          'Weighted Avg': grandWeightedAvg.toFixed(2),
+          ...(hasFiltersApplied ? { 'Weighted Avg': grandWeightedAvg.toFixed(1) } : {}),
           'Comments': ''
         };
         questionColumns.forEach((qCol, i) => {
@@ -2353,26 +2450,63 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             })}
 
                             {/* Overall Average Card */}
-                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-5 shadow-lg">
-                              <div className="flex items-center justify-between">
+                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-6 shadow-lg">
+                              <div className="flex items-center justify-between flex-wrap gap-4">
                                 <div>
                                   <p className="text-emerald-100 text-sm font-semibold uppercase tracking-wide">Overall Average</p>
                                   <div className="flex items-end gap-2 mt-1">
-                                    <span className="text-4xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
-                                    <span className="text-emerald-200 text-lg mb-1">/5.0</span>
+                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-emerald-200 text-xl mb-2">/5.0</span>
                                   </div>
-                                </div>
-                                <div className="bg-white/20 rounded-lg px-4 py-2 backdrop-blur-sm text-center">
-                                  <p className="text-white text-xl font-bold">{facultyAverages.overallAvg.toFixed(2)}</p>
-                                  <p className="text-emerald-100 text-[10px] uppercase tracking-wide">Weighted Avg</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-emerald-100 text-sm">
-                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional!' :
-                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding!' :
-                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good' :
-                                     '📈 Average'}
+                                  <p className="text-emerald-100 text-sm mt-2">
+                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
                                   </p>
+                                </div>
+                                {/* Section-wise scores */}
+                                <div className="flex flex-wrap gap-3 text-center">
+                                  {facultyAverages.sectionScores.length > 1 ? (
+                                    // Multiple sections: show each section's best/lowest
+                                    facultyAverages.sectionScores.map((sec, idx) => (
+                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[120px]">
+                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
+                                        <div className="flex gap-3 justify-center">
+                                          <div>
+                                            <p className="text-white text-lg font-bold">{sec.bestScore.toFixed(1)}</p>
+                                            <p className="text-emerald-100 text-[9px] uppercase">Best</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-white text-lg font-bold">{sec.lowestScore.toFixed(1)}</p>
+                                            <p className="text-emerald-100 text-[9px] uppercase">Lowest</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    // Single section: show overall best/lowest
+                                    <>
+                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                        <p className="text-white text-2xl font-bold">
+                                          {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
+                                        </p>
+                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Best Score</p>
+                                      </div>
+                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                        <p className="text-white text-2xl font-bold">
+                                          {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
+                                        </p>
+                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
+                                      </div>
+                                    </>
+                                  )}
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">
+                                      {facultyAverages.weightedAvg.toFixed(1)}
+                                    </p>
+                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -2382,6 +2516,68 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         {/* Graph View - Beautiful charts */}
                         {scorecardViewMode === 'graph' && (
                           <div className="space-y-6 mb-4">
+                            {/* Overall Score Gauge / Summary Card */}
+                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-6 shadow-lg">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h4 className="text-emerald-100 text-sm font-semibold uppercase tracking-wide mb-1">Overall Performance</h4>
+                                  <div className="flex items-end gap-2">
+                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-emerald-200 text-xl mb-2">/5.0</span>
+                                  </div>
+                                  <p className="text-emerald-100 text-sm mt-2">
+                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
+                                  </p>
+                                </div>
+                                {/* Mini stats - Section-wise best/lowest scores */}
+                                <div className="flex flex-wrap gap-3 text-center">
+                                  {facultyAverages.sectionScores.length > 1 ? (
+                                    // Multiple sections: show each section's best/lowest
+                                    facultyAverages.sectionScores.map((sec, idx) => (
+                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[120px]">
+                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
+                                        <div className="flex gap-3 justify-center">
+                                          <div>
+                                            <p className="text-white text-lg font-bold">{sec.bestScore.toFixed(1)}</p>
+                                            <p className="text-emerald-100 text-[9px] uppercase">Best</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-white text-lg font-bold">{sec.lowestScore.toFixed(1)}</p>
+                                            <p className="text-emerald-100 text-[9px] uppercase">Lowest</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    // Single section: show overall best/lowest
+                                    <>
+                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                        <p className="text-white text-2xl font-bold">
+                                          {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
+                                        </p>
+                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Best Score</p>
+                                      </div>
+                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                        <p className="text-white text-2xl font-bold">
+                                          {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
+                                        </p>
+                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
+                                      </div>
+                                    </>
+                                  )}
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">
+                                      {facultyAverages.weightedAvg.toFixed(1)}
+                                    </p>
+                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
                             {/* Charts Grid */}
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                               {/* Bar Chart - Per Question Scores */}
@@ -2553,46 +2749,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     <p className="text-[10px] text-slate-500 leading-relaxed">
                                       <span className="font-semibold text-slate-700">Quality Circle Scorecard</span> – A standardized academic quality document based on structured peer review and validated student feedback.
                                     </p>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Overall Score Gauge / Summary Card */}
-                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-6 shadow-lg">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h4 className="text-emerald-100 text-sm font-semibold uppercase tracking-wide mb-1">Overall Performance</h4>
-                                  <div className="flex items-end gap-2">
-                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
-                                    <span className="text-emerald-200 text-xl mb-2">/5.0</span>
-                                  </div>
-                                  <p className="text-emerald-100 text-sm mt-2">
-                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
-                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
-                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
-                                     '📈 Average - Needs Improvement'}
-                                  </p>
-                                </div>
-                                {/* Mini stats */}
-                                <div className="grid grid-cols-3 gap-4 text-center">
-                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">
-                                      {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                    </p>
-                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Best Score</p>
-                                  </div>
-                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">
-                                      {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                    </p>
-                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
-                                  </div>
-                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">
-                                      {facultyAverages.overallAvg.toFixed(2)}
-                                    </p>
-                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
                                 </div>
                               </div>
