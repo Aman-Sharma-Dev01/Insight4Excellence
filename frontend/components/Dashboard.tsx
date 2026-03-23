@@ -131,7 +131,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     course: string;
     section: string;
     comments: string[];
-    sectionScores: { section: string; bestScore: number; lowestScore: number; studentCount: number }[];
+    sectionScores: { section: string; bestScore: number; lowestScore: number; avgScore: number; studentCount: number }[];
+  } | null>(null);
+
+  // Class-centric dashboard state (shown when class/section filter is applied without faculty filter)
+  const [classAverages, setClassAverages] = React.useState<{
+    className: string;
+    school: string;
+    department: string;
+    semester: string;
+    totalResponses: number;
+    overallAvg: number;
+    weightedAvg: number;
+    questionScores: { name: string; fullName: string; avg: number }[];
+    facultyBreakdown: {
+      facultyName: string;
+      course: string;
+      totalResponses: number;
+      overallAvg: number;
+      questionAvgs: number[];
+      comments: string[];
+    }[];
+    comments: string[];
   } | null>(null);
 
   // Merge operation progress state
@@ -388,6 +409,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const calculateFacultyAverages = async () => {
       if (!activeSheet) {
         setFacultyAverages(null);
+        setClassAverages(null);
         return;
       }
 
@@ -395,6 +417,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
       const hasFilters = Object.values(filterState).some((v: any) => v && v.length > 0);
       if (!hasFilters) {
         setFacultyAverages(null);
+        setClassAverages(null);
         return;
       }
 
@@ -448,8 +471,164 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
           if (questionColumns.length === 0) {
             setFacultyAverages(null);
+            setClassAverages(null);
             return;
           }
+
+          // Detect if this is a class-centric filter (section filter without faculty filter)
+          const facultyFilterKey = Object.keys(filterState).find(k =>
+            k.toLowerCase().includes('faculty') || k.toLowerCase().includes('teacher')
+          );
+          const sectionFilterKey = Object.keys(filterState).find(k =>
+            k.toLowerCase().includes('section') || k.toLowerCase().includes('class')
+          );
+          const hasFacultyFilter = facultyFilterKey && filterState[facultyFilterKey] && filterState[facultyFilterKey].length > 0;
+          const hasSectionFilter = sectionFilterKey && filterState[sectionFilterKey] && filterState[sectionFilterKey].length > 0;
+
+          // CLASS DASHBOARD: section filter active, no faculty filter
+          if (hasSectionFilter && !hasFacultyFilter) {
+            setFacultyAverages(null);
+
+            const isValidComment = (comment: string): boolean => {
+              if (!comment || typeof comment !== 'string') return false;
+              const trimmed = comment.trim().toLowerCase();
+              if (trimmed.length === 0) return false;
+              const skipWords = ['na', 'n/a', 'nil', 'none', 'good', 'ok', 'okay', 'nice', 'fine', '-', '.', '..', '...'];
+              if (skipWords.includes(trimmed)) return false;
+              const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+              if (words.length <= 1) return false;
+              return true;
+            };
+
+            // Get class name from the filter
+            const className = filterState[sectionFilterKey!].join(', ');
+            let school = '';
+            let department = '';
+            let semester = '';
+            const allComments: string[] = [];
+
+            // Group by faculty
+            const facultyMap: Record<string, {
+              course: string;
+              rows: number;
+              questionTotals: Record<string, { sum: number; count: number }>;
+              comments: string[];
+            }> = {};
+
+            // Class-level question totals
+            const classQuestionTotals: Record<string, { sum: number; count: number }> = {};
+
+            data.forEach((row, idx) => {
+              if (idx === 0) {
+                school = schoolCol ? String(row[schoolCol] || '') : '';
+                department = deptCol ? String(row[deptCol] || '') : '';
+                semester = semesterCol ? String(row[semesterCol] || '') : '';
+              }
+
+              const fName = facultyCol ? String(row[facultyCol] || '').trim() : 'Unknown';
+              const courseName = courseCol ? String(row[courseCol] || '').trim() : '';
+
+              if (!facultyMap[fName]) {
+                facultyMap[fName] = {
+                  course: courseName,
+                  rows: 0,
+                  questionTotals: {},
+                  comments: []
+                };
+              }
+              facultyMap[fName].rows++;
+              if (courseName && !facultyMap[fName].course.includes(courseName)) {
+                facultyMap[fName].course = facultyMap[fName].course ? `${facultyMap[fName].course}, ${courseName}` : courseName;
+              }
+
+              // Accumulate question scores (both per-faculty and class-level)
+              questionColumns.forEach(qCol => {
+                const val = Number(row[qCol]);
+                if (!isNaN(val)) {
+                  // Per-faculty
+                  if (!facultyMap[fName].questionTotals[qCol]) {
+                    facultyMap[fName].questionTotals[qCol] = { sum: 0, count: 0 };
+                  }
+                  facultyMap[fName].questionTotals[qCol].sum += val;
+                  facultyMap[fName].questionTotals[qCol].count += 1;
+                  // Class-level
+                  if (!classQuestionTotals[qCol]) {
+                    classQuestionTotals[qCol] = { sum: 0, count: 0 };
+                  }
+                  classQuestionTotals[qCol].sum += val;
+                  classQuestionTotals[qCol].count += 1;
+                }
+              });
+
+              // Collect comments
+              if (remarkCol) {
+                const comment = String(row[remarkCol] || '').trim();
+                if (isValidComment(comment)) {
+                  facultyMap[fName].comments.push(comment);
+                  if (!allComments.includes(comment)) {
+                    allComments.push(comment);
+                  }
+                }
+              }
+            });
+
+            // Build class-level question scores
+            const classQuestionScores = questionColumns.map((qCol, i) => {
+              const totals = classQuestionTotals[qCol];
+              const avg = totals && totals.count > 0 ? totals.sum / totals.count : 0;
+              return { name: `Q${i + 1}`, fullName: qCol, avg };
+            });
+
+            const classOverallAvg = classQuestionScores.length > 0
+              ? classQuestionScores.reduce((a, b) => a + b.avg, 0) / classQuestionScores.length
+              : 0;
+
+            // Build per-faculty breakdown
+            const facultyBreakdown = Object.entries(facultyMap).map(([fName, fData]) => {
+              const questionAvgs = questionColumns.map(qCol => {
+                const totals = fData.questionTotals[qCol];
+                return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+              });
+              const overallAvg = questionAvgs.length > 0
+                ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length
+                : 0;
+
+              return {
+                facultyName: fName,
+                course: fData.course,
+                totalResponses: fData.rows,
+                overallAvg,
+                questionAvgs,
+                comments: fData.comments
+              };
+            }).sort((a, b) => b.overallAvg - a.overallAvg); // Sort by avg descending
+
+            // Weighted avg for the class (weighting by faculty response count)
+            let weightedSum = 0;
+            let totalStudents = 0;
+            facultyBreakdown.forEach(fb => {
+              weightedSum += fb.totalResponses * fb.overallAvg;
+              totalStudents += fb.totalResponses;
+            });
+            const classWeightedAvg = totalStudents > 0 ? weightedSum / totalStudents : classOverallAvg;
+
+            setClassAverages({
+              className,
+              school,
+              department,
+              semester,
+              totalResponses: data.length,
+              overallAvg: classOverallAvg,
+              weightedAvg: classWeightedAvg,
+              questionScores: classQuestionScores,
+              facultyBreakdown,
+              comments: allComments
+            });
+            return;
+          }
+
+          // FACULTY DASHBOARD: faculty filter active or no section-only filter
+          setClassAverages(null);
 
           // Calculate averages
           const questionTotals: Record<string, { sum: number; count: number }> = {};
@@ -597,10 +776,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               return totals && totals.count > 0 ? totals.sum / totals.count : 0;
             });
             const validAvgs = sectionQuestionAvgs.filter(avg => avg > 0);
+            const avgScore = validAvgs.length > 0 ? validAvgs.reduce((a, b) => a + b, 0) / validAvgs.length : 0;
             return {
               section: sectionName === 'default' ? 'All' : sectionName,
               bestScore: validAvgs.length > 0 ? Math.max(...validAvgs) : 0,
               lowestScore: validAvgs.length > 0 ? Math.min(...validAvgs) : 0,
+              avgScore,
               studentCount: section.studentCount
             };
           });
@@ -1681,6 +1862,124 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         rawWs['!cols'] = rawColWidths;
         XLSX.utils.book_append_sheet(wb, rawWs, 'Raw Data');
 
+        // Faculty Summary sheet for Master Sheet export
+        // Groups all classes per faculty into a single row
+        if (activeSheet?.isMaster) {
+          // Group by faculty name (across all sections)
+          const facultySummaryMap: Record<string, {
+            school: string;
+            department: string;
+            classes: {
+              section: string;
+              course: string;
+              semester: string;
+              totalResponses: number;
+              questionAvgs: number[];
+              overallAvg: number;
+              weightedAvg: number;
+              comments: string[];
+            }[];
+          }> = {};
+
+          Object.entries(facultyGroups).forEach(([groupKey, group]) => {
+            const facultyName = group.info['Faculty Name'];
+            if (!exportedFacultyNames.has(facultyName)) return;
+
+            if (!facultySummaryMap[facultyName]) {
+              facultySummaryMap[facultyName] = {
+                school: group.info['School'],
+                department: group.info['Department'],
+                classes: []
+              };
+            }
+
+            const questionAvgs = questionColumns.map(qCol => {
+              const totals = group.questionTotals[qCol];
+              return totals && totals.count > 0 ? totals.sum / totals.count : 0;
+            });
+            const overallAvg = questionAvgs.length > 0
+              ? questionAvgs.reduce((a, b) => a + b, 0) / questionAvgs.length
+              : 0;
+
+            // Get weighted avg for this faculty
+            const fData = facultyTotals[facultyName];
+            const weightedAvg = fData && fData.totalStudents > 0
+              ? fData.weightedSum / fData.totalStudents
+              : overallAvg;
+
+            facultySummaryMap[facultyName].classes.push({
+              section: group.info['Section'],
+              course: group.info['Course Name'],
+              semester: group.info['Semester'],
+              totalResponses: group.rowCount,
+              questionAvgs,
+              overallAvg,
+              weightedAvg,
+              comments: group.comments
+            });
+          });
+
+          // Determine the max number of classes any faculty teaches
+          const maxClasses = Math.max(...Object.values(facultySummaryMap).map(f => f.classes.length), 1);
+
+          // Build headers for the summary sheet
+          const summaryHeaders = ['S.No', 'Faculty Name', 'School', 'Department'];
+          for (let c = 0; c < maxClasses; c++) {
+            const prefix = maxClasses > 1 ? `Class ${c + 1} - ` : '';
+            summaryHeaders.push(`${prefix}Section`);
+            summaryHeaders.push(`${prefix}Course`);
+            summaryHeaders.push(`${prefix}Semester`);
+            summaryHeaders.push(`${prefix}Total Responses`);
+            shortQuestionNames.forEach(qName => {
+              summaryHeaders.push(`${prefix}${qName}`);
+            });
+            summaryHeaders.push(`${prefix}Overall Avg`);
+            summaryHeaders.push(`${prefix}Weighted Avg`);
+            summaryHeaders.push(`${prefix}Comments`);
+          }
+
+          // Build data rows
+          const summaryData: Record<string, unknown>[] = [];
+          let sNo = 1;
+          Object.entries(facultySummaryMap).forEach(([facultyName, fInfo]) => {
+            const row: Record<string, unknown> = {
+              'S.No': sNo++,
+              'Faculty Name': facultyName,
+              'School': fInfo.school,
+              'Department': fInfo.department
+            };
+
+            fInfo.classes.forEach((cls, cIdx) => {
+              const prefix = maxClasses > 1 ? `Class ${cIdx + 1} - ` : '';
+              row[`${prefix}Section`] = cls.section;
+              row[`${prefix}Course`] = cls.course;
+              row[`${prefix}Semester`] = cls.semester;
+              row[`${prefix}Total Responses`] = cls.totalResponses;
+              cls.questionAvgs.forEach((avg, qIdx) => {
+                row[`${prefix}${shortQuestionNames[qIdx]}`] = avg.toFixed(1);
+              });
+              row[`${prefix}Overall Avg`] = cls.overallAvg.toFixed(1);
+              row[`${prefix}Weighted Avg`] = cls.weightedAvg.toFixed(1);
+              const formattedComments = cls.comments.map((c, i) => `${i + 1}. ${c}`).join('\n');
+              row[`${prefix}Comments`] = formattedComments;
+            });
+
+            summaryData.push(row);
+          });
+
+          const summaryWs = XLSX.utils.json_to_sheet(summaryData, { header: summaryHeaders });
+          // Set column widths
+          const summaryColWidths = summaryHeaders.map(h => {
+            if (h.includes('Comments')) return { wch: 60 };
+            if (h.includes('Faculty')) return { wch: 25 };
+            if (h.includes('School') || h.includes('Department') || h.includes('Course')) return { wch: 20 };
+            if (h === 'S.No') return { wch: 5 };
+            return { wch: 12 };
+          });
+          summaryWs['!cols'] = summaryColWidths;
+          XLSX.utils.book_append_sheet(wb, summaryWs, 'Faculty Summary');
+        }
+
         // Download
         const filterCount = Object.values(filterState).filter((v: any) => v && v.length > 0).length;
         const suffix = filterCount > 0 ? '_filtered' : '_all';
@@ -2381,9 +2680,56 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                           </button>
                         </div>
 
-                        {/* Details View - Question Scores as cards */}
+                        {/* Details View - Overall Average Card + Question Scores */}
                         {scorecardViewMode === 'details' && (
                           <div className="space-y-3 mb-4">
+                            {/* Overall Average Card - shown first */}
+                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-6 shadow-lg">
+                              <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div>
+                                  <p className="text-emerald-100 text-sm font-semibold uppercase tracking-wide">Overall Average</p>
+                                  <div className="flex items-end gap-2 mt-1">
+                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-emerald-200 text-xl mb-2">/5.0</span>
+                                  </div>
+                                  <p className="text-emerald-100 text-sm mt-2">
+                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
+                                  </p>
+                                </div>
+                                {/* Section-wise scores */}
+                                <div className="flex flex-wrap gap-3 text-center">
+                                  {facultyAverages.sectionScores.length > 1 ? (
+                                    // Multiple sections: show each section's average
+                                    facultyAverages.sectionScores.map((sec, idx) => (
+                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
+                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
+                                        <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(1)}</p>
+                                        <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    // Single section: show overall average
+                                    <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                      <p className="text-white text-2xl font-bold">
+                                        {facultyAverages.overallAvg.toFixed(1)}
+                                      </p>
+                                      <p className="text-emerald-100 text-xs uppercase tracking-wide">Average</p>
+                                    </div>
+                                  )}
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">
+                                      {facultyAverages.weightedAvg.toFixed(1)}
+                                    </p>
+                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Question Scores as cards */}
                             {facultyAverages.questionScores.map((q, idx) => {
                               const score = q.avg;
                               const color = score >= 4.81 ? 'emerald' : score >= 4.41 ? 'blue' : score >= 4.0 ? 'amber' : 'red';
@@ -2448,68 +2794,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </div>
                               );
                             })}
-
-                            {/* Overall Average Card */}
-                            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-xl p-6 shadow-lg">
-                              <div className="flex items-center justify-between flex-wrap gap-4">
-                                <div>
-                                  <p className="text-emerald-100 text-sm font-semibold uppercase tracking-wide">Overall Average</p>
-                                  <div className="flex items-end gap-2 mt-1">
-                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
-                                    <span className="text-emerald-200 text-xl mb-2">/5.0</span>
-                                  </div>
-                                  <p className="text-emerald-100 text-sm mt-2">
-                                    {facultyAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
-                                     facultyAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
-                                     facultyAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
-                                     '📈 Average - Needs Improvement'}
-                                  </p>
-                                </div>
-                                {/* Section-wise scores */}
-                                <div className="flex flex-wrap gap-3 text-center">
-                                  {facultyAverages.sectionScores.length > 1 ? (
-                                    // Multiple sections: show each section's best/lowest
-                                    facultyAverages.sectionScores.map((sec, idx) => (
-                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[120px]">
-                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
-                                        <div className="flex gap-3 justify-center">
-                                          <div>
-                                            <p className="text-white text-lg font-bold">{sec.bestScore.toFixed(1)}</p>
-                                            <p className="text-emerald-100 text-[9px] uppercase">Best</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-white text-lg font-bold">{sec.lowestScore.toFixed(1)}</p>
-                                            <p className="text-emerald-100 text-[9px] uppercase">Lowest</p>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    // Single section: show overall best/lowest
-                                    <>
-                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                        <p className="text-white text-2xl font-bold">
-                                          {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                        </p>
-                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Best Score</p>
-                                      </div>
-                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                        <p className="text-white text-2xl font-bold">
-                                          {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                        </p>
-                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
-                                      </div>
-                                    </>
-                                  )}
-                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">
-                                      {facultyAverages.weightedAvg.toFixed(1)}
-                                    </p>
-                                    <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
                           </div>
                         )}
 
@@ -2532,41 +2816,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                      '📈 Average - Needs Improvement'}
                                   </p>
                                 </div>
-                                {/* Mini stats - Section-wise best/lowest scores */}
+                                {/* Mini stats - Section-wise averages */}
                                 <div className="flex flex-wrap gap-3 text-center">
                                   {facultyAverages.sectionScores.length > 1 ? (
-                                    // Multiple sections: show each section's best/lowest
+                                    // Multiple sections: show each section's average
                                     facultyAverages.sectionScores.map((sec, idx) => (
-                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[120px]">
+                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
                                         <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
-                                        <div className="flex gap-3 justify-center">
-                                          <div>
-                                            <p className="text-white text-lg font-bold">{sec.bestScore.toFixed(1)}</p>
-                                            <p className="text-emerald-100 text-[9px] uppercase">Best</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-white text-lg font-bold">{sec.lowestScore.toFixed(1)}</p>
-                                            <p className="text-emerald-100 text-[9px] uppercase">Lowest</p>
-                                          </div>
-                                        </div>
+                                        <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(1)}</p>
+                                        <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
                                       </div>
                                     ))
                                   ) : (
-                                    // Single section: show overall best/lowest
-                                    <>
-                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                        <p className="text-white text-2xl font-bold">
-                                          {Math.max(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                        </p>
-                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Best Score</p>
-                                      </div>
-                                      <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                        <p className="text-white text-2xl font-bold">
-                                          {Math.min(...facultyAverages.questionScores.map(q => q.avg)).toFixed(1)}
-                                        </p>
-                                        <p className="text-emerald-100 text-xs uppercase tracking-wide">Lowest Score</p>
-                                      </div>
-                                    </>
+                                    // Single section: show overall average
+                                    <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                      <p className="text-white text-2xl font-bold">
+                                        {facultyAverages.overallAvg.toFixed(1)}
+                                      </p>
+                                      <p className="text-emerald-100 text-xs uppercase tracking-wide">Average</p>
+                                    </div>
                                   )}
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
                                     <p className="text-white text-2xl font-bold">
@@ -2774,6 +3042,451 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                         )}
                       </div>
                     )}
+
+                    {/* Class Dashboard Card - shown when class/section filter is applied without faculty filter */}
+                    {classAverages && (
+                      <div className="mb-6 bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200 shadow-sm">
+                        {/* Header with class name */}
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="p-2 bg-blue-500 rounded-lg">
+                            <BookOpen className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-blue-800 text-lg flex items-center gap-3">
+                              {classAverages.className}
+                              <div className="flex items-center gap-0.5 bg-white/60 px-2 py-1 rounded-md border border-blue-100">
+                                {[1, 2, 3, 4, 5].map((star) => {
+                                  const roundedAvg = Number(classAverages.overallAvg.toFixed(1));
+                                  const fill = roundedAvg >= star;
+                                  const halfFill = !fill && roundedAvg >= star - 0.5;
+                                  if (fill) {
+                                    return <Star key={star} className="w-4 h-4 text-amber-400 fill-amber-400" />;
+                                  } else if (halfFill) {
+                                    return <StarHalf key={star} className="w-4 h-4 text-amber-400 fill-amber-400" />;
+                                  } else {
+                                    return <Star key={star} className="w-4 h-4 text-slate-300" />;
+                                  }
+                                })}
+                                <span className="ml-1 text-sm font-bold text-slate-700">
+                                  {classAverages.overallAvg.toFixed(1)}
+                                </span>
+                              </div>
+                            </h3>
+                            <p className="text-xs text-blue-600">Class performance based on filtered data • {classAverages.totalResponses} responses</p>
+                          </div>
+                        </div>
+
+                        {/* Metadata: School, Department, Semester */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                          {classAverages.school && (
+                            <div className="bg-white/70 rounded-lg px-3 py-2 border border-blue-100">
+                              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide">School</p>
+                              <p className="text-sm text-slate-700 truncate">{classAverages.school}</p>
+                            </div>
+                          )}
+                          {classAverages.department && (
+                            <div className="bg-white/70 rounded-lg px-3 py-2 border border-blue-100">
+                              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide">Department</p>
+                              <p className="text-sm text-slate-700 truncate">{classAverages.department}</p>
+                            </div>
+                          )}
+                          {classAverages.semester && (
+                            <div className="bg-white/70 rounded-lg px-3 py-2 border border-blue-100">
+                              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide">Semester</p>
+                              <p className="text-sm text-slate-700 truncate">{classAverages.semester}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* View Mode Tabs: Details | Graph */}
+                        <div className="flex items-center gap-2 mb-4 bg-white/50 p-1 rounded-lg border border-blue-100 w-fit">
+                          <button
+                            onClick={() => setScorecardViewMode('details')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${scorecardViewMode === 'details'
+                              ? 'bg-blue-500 text-white shadow-md'
+                              : 'text-blue-700 hover:bg-blue-100'
+                            }`}
+                          >
+                            <Table className="w-4 h-4" /> Details
+                          </button>
+                          <button
+                            onClick={() => setScorecardViewMode('graph')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${scorecardViewMode === 'graph'
+                              ? 'bg-blue-500 text-white shadow-md'
+                              : 'text-blue-700 hover:bg-blue-100'
+                            }`}
+                          >
+                            <BarChart3 className="w-4 h-4" /> Graph
+                          </button>
+                        </div>
+
+                        {/* Details View */}
+                        {scorecardViewMode === 'details' && (
+                          <div className="space-y-3 mb-4">
+                            {/* Overall Class Average Card */}
+                            <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500 rounded-xl p-6 shadow-lg">
+                              <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div>
+                                  <p className="text-blue-100 text-sm font-semibold uppercase tracking-wide">Class Average</p>
+                                  <div className="flex items-end gap-2 mt-1">
+                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-blue-200 text-xl mb-2">/5.0</span>
+                                  </div>
+                                  <p className="text-blue-100 text-sm mt-2">
+                                    {classAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     classAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     classAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-3 text-center">
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">{classAverages.overallAvg.toFixed(1)}</p>
+                                    <p className="text-blue-100 text-xs uppercase tracking-wide">Average</p>
+                                  </div>
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(1)}</p>
+                                    <p className="text-blue-100 text-xs uppercase tracking-wide">Weighted Avg</p>
+                                  </div>
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">{classAverages.facultyBreakdown.length}</p>
+                                    <p className="text-blue-100 text-xs uppercase tracking-wide">Faculty</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Per-Question Score Cards */}
+                            {classAverages.questionScores.map((q, idx) => {
+                              const score = q.avg;
+                              const color = score >= 4.81 ? 'emerald' : score >= 4.41 ? 'blue' : score >= 4.0 ? 'amber' : 'red';
+                              const status = score >= 4.81 ? 'Exceptional' : score >= 4.41 ? 'Outstanding' : score >= 4.0 ? 'Good' : 'Average';
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`bg-white rounded-xl p-4 border-l-4 shadow-sm hover:shadow-md transition-all duration-200 ${
+                                    color === 'emerald' ? 'border-l-emerald-500' :
+                                    color === 'blue' ? 'border-l-blue-500' :
+                                    color === 'amber' ? 'border-l-amber-500' : 'border-l-red-500'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-4">
+                                    <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${
+                                      color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                                      color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                                      color === 'amber' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                    }`}>
+                                      {q.name}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-slate-700 leading-relaxed">{q.fullName}</p>
+                                      <div className="flex items-center gap-3 mt-2">
+                                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                          <div 
+                                            className={`h-full rounded-full transition-all duration-500 ${
+                                              color === 'emerald' ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' :
+                                              color === 'blue' ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
+                                              color === 'amber' ? 'bg-gradient-to-r from-amber-400 to-amber-600' : 'bg-gradient-to-r from-red-400 to-red-600'
+                                            }`}
+                                            style={{ width: `${(score / 5) * 100}%` }}
+                                          />
+                                        </div>
+                                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${
+                                          color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                                          color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                                          color === 'amber' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                        }`}>
+                                          {status}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex-shrink-0 text-right">
+                                      <p className={`text-3xl font-black ${
+                                        color === 'emerald' ? 'text-emerald-600' :
+                                        color === 'blue' ? 'text-blue-600' :
+                                        color === 'amber' ? 'text-amber-600' : 'text-red-600'
+                                      }`}>
+                                        {score.toFixed(1)}
+                                      </p>
+                                      <p className="text-xs text-slate-400">out of 5.0</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* Faculty Breakdown Table */}
+                            <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
+                              <div className="bg-gradient-to-r from-blue-500 to-indigo-500 px-5 py-3">
+                                <h4 className="text-white font-bold text-sm flex items-center gap-2">
+                                  <Users className="w-4 h-4" /> Faculty Teaching This Class ({classAverages.facultyBreakdown.length})
+                                </h4>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200">
+                                      <th className="text-left px-4 py-3">Faculty Name</th>
+                                      <th className="text-left px-4 py-3">Subject</th>
+                                      <th className="text-center px-4 py-3">Responses</th>
+                                      {classAverages.questionScores.map((q, i) => (
+                                        <th key={i} className="text-center px-3 py-3">{q.name}</th>
+                                      ))}
+                                      <th className="text-center px-4 py-3">Avg</th>
+                                      <th className="text-left px-4 py-3">Comments</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {classAverages.facultyBreakdown.map((faculty, fIdx) => {
+                                      const avgColor = faculty.overallAvg >= 4.81 ? 'text-emerald-600 bg-emerald-50' :
+                                        faculty.overallAvg >= 4.41 ? 'text-blue-600 bg-blue-50' :
+                                        faculty.overallAvg >= 4.0 ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50';
+                                      return (
+                                        <tr key={fIdx} className="hover:bg-slate-50 transition">
+                                          <td className="px-4 py-3 font-semibold text-slate-800">{faculty.facultyName}</td>
+                                          <td className="px-4 py-3 text-slate-600 max-w-[150px] truncate">{faculty.course || '-'}</td>
+                                          <td className="px-4 py-3 text-center text-slate-600">{faculty.totalResponses}</td>
+                                          {faculty.questionAvgs.map((qAvg, qIdx) => (
+                                            <td key={qIdx} className="px-3 py-3 text-center">
+                                              <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                                                qAvg >= 4.81 ? 'text-emerald-700 bg-emerald-100' :
+                                                qAvg >= 4.41 ? 'text-blue-700 bg-blue-100' :
+                                                qAvg >= 4.0 ? 'text-amber-700 bg-amber-100' : 'text-red-700 bg-red-100'
+                                              }`}>
+                                                {qAvg.toFixed(1)}
+                                              </span>
+                                            </td>
+                                          ))}
+                                          <td className="px-4 py-3 text-center">
+                                            <span className={`text-sm font-black px-2 py-1 rounded-lg ${avgColor}`}>
+                                              {faculty.overallAvg.toFixed(1)}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-3 text-slate-600 max-w-[200px]">
+                                            {faculty.comments.length > 0 ? (
+                                              <details className="cursor-pointer">
+                                                <summary className="text-xs text-blue-600 font-semibold">{faculty.comments.length} comment{faculty.comments.length > 1 ? 's' : ''}</summary>
+                                                <div className="mt-1 space-y-1 text-xs">
+                                                  {faculty.comments.slice(0, 5).map((c, ci) => (
+                                                    <p key={ci} className="text-slate-600">{ci + 1}. {c}</p>
+                                                  ))}
+                                                  {faculty.comments.length > 5 && (
+                                                    <p className="text-slate-400 italic">+{faculty.comments.length - 5} more</p>
+                                                  )}
+                                                </div>
+                                              </details>
+                                            ) : (
+                                              <span className="text-slate-400 text-xs">-</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Graph View */}
+                        {scorecardViewMode === 'graph' && (
+                          <div className="space-y-6 mb-4">
+                            {/* Overall Score Summary */}
+                            <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500 rounded-xl p-6 shadow-lg">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h4 className="text-blue-100 text-sm font-semibold uppercase tracking-wide mb-1">Class Performance</h4>
+                                  <div className="flex items-end gap-2">
+                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-blue-200 text-xl mb-2">/5.0</span>
+                                  </div>
+                                  <p className="text-blue-100 text-sm mt-2">
+                                    {classAverages.overallAvg >= 4.81 ? '🌟 Exceptional Performance!' :
+                                     classAverages.overallAvg >= 4.41 ? '✨ Outstanding Performance!' :
+                                     classAverages.overallAvg >= 4.0 ? '👍 Good Performance' :
+                                     '📈 Average - Needs Improvement'}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-3 text-center">
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(1)}</p>
+                                    <p className="text-blue-100 text-xs uppercase tracking-wide">Weighted Avg</p>
+                                  </div>
+                                  <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
+                                    <p className="text-white text-2xl font-bold">{classAverages.facultyBreakdown.length}</p>
+                                    <p className="text-blue-100 text-xs uppercase tracking-wide">Faculty</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Charts Grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                              {/* Bar Chart - Per Question Scores */}
+                              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-lg">
+                                <h4 className="text-base font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                  <BarChart3 className="w-5 h-5 text-blue-600" /> Per-Question Performance
+                                </h4>
+                                <div className="h-72">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart
+                                      data={classAverages.questionScores.map(q => ({
+                                        name: q.name,
+                                        fullName: q.fullName,
+                                        score: q.avg
+                                      }))}
+                                      margin={{ top: 25, right: 30, left: 10, bottom: 10 }}
+                                    >
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                      <XAxis 
+                                        dataKey="name" 
+                                        tick={{ fontSize: 13, fill: '#374151', fontWeight: 600 }}
+                                        axisLine={{ stroke: '#e5e7eb' }}
+                                        tickLine={false}
+                                      />
+                                      <YAxis 
+                                        domain={[0, 5]} 
+                                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        ticks={[0, 1, 2, 3, 4, 5]}
+                                      />
+                                      <Tooltip
+                                        cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }}
+                                        content={({ active, payload }) => {
+                                          if (active && payload && payload.length) {
+                                            const data = payload[0].payload;
+                                            const score = data.score;
+                                            const color = score >= 4.81 ? '#10b981' : score >= 4.41 ? '#3b82f6' : score >= 4.0 ? '#f59e0b' : '#ef4444';
+                                            return (
+                                              <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 max-w-xs">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
+                                                  <span className="font-bold text-slate-800">{data.name}</span>
+                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-600 leading-relaxed">{data.fullName}</p>
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        }}
+                                      />
+                                      <Bar dataKey="score" radius={[10, 10, 0, 0]} maxBarSize={70}>
+                                        {classAverages.questionScores.map((q, index) => (
+                                          <Cell
+                                            key={`cell-${index}`}
+                                            fill={q.avg >= 4.81 ? 'url(#barGradientGreen)' : q.avg >= 4.41 ? 'url(#barGradientBlue)' : q.avg >= 4.0 ? 'url(#barGradientAmber)' : 'url(#barGradientRed)'}
+                                          />
+                                        ))}
+                                        <LabelList
+                                          dataKey="score"
+                                          position="top"
+                                          formatter={(value: number) => value.toFixed(1)}
+                                          style={{ fontSize: 13, fontWeight: 700, fill: '#111827' }}
+                                        />
+                                      </Bar>
+                                    </BarChart>
+                                  </ResponsiveContainer>
+                                </div>
+                              </div>
+
+                              {/* Faculty Comparison Bar Chart */}
+                              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-lg">
+                                <h4 className="text-base font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                  <Users className="w-5 h-5 text-indigo-600" /> Faculty Comparison
+                                </h4>
+                                <div className="h-72">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart
+                                      data={classAverages.facultyBreakdown.map(f => ({
+                                        name: f.facultyName.length > 12 ? f.facultyName.substring(0, 12) + '...' : f.facultyName,
+                                        fullName: f.facultyName,
+                                        score: f.overallAvg,
+                                        responses: f.totalResponses
+                                      }))}
+                                      margin={{ top: 25, right: 30, left: 10, bottom: 10 }}
+                                    >
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                      <XAxis 
+                                        dataKey="name" 
+                                        tick={{ fontSize: 11, fill: '#374151', fontWeight: 600 }}
+                                        axisLine={{ stroke: '#e5e7eb' }}
+                                        tickLine={false}
+                                        interval={0}
+                                        angle={-20}
+                                        textAnchor="end"
+                                        height={60}
+                                      />
+                                      <YAxis 
+                                        domain={[0, 5]} 
+                                        tick={{ fontSize: 12, fill: '#6b7280' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        ticks={[0, 1, 2, 3, 4, 5]}
+                                      />
+                                      <Tooltip
+                                        cursor={{ fill: 'rgba(99, 102, 241, 0.08)' }}
+                                        content={({ active, payload }) => {
+                                          if (active && payload && payload.length) {
+                                            const data = payload[0].payload;
+                                            const score = data.score;
+                                            const color = score >= 4.81 ? '#10b981' : score >= 4.41 ? '#3b82f6' : score >= 4.0 ? '#f59e0b' : '#ef4444';
+                                            return (
+                                              <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 max-w-xs">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <span className="font-bold text-slate-800">{data.fullName}</span>
+                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500">{data.responses} responses</p>
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        }}
+                                      />
+                                      <Bar dataKey="score" radius={[10, 10, 0, 0]} maxBarSize={60}>
+                                        {classAverages.facultyBreakdown.map((f, index) => (
+                                          <Cell
+                                            key={`cell-faculty-${index}`}
+                                            fill={f.overallAvg >= 4.81 ? '#10b981' : f.overallAvg >= 4.41 ? '#3b82f6' : f.overallAvg >= 4.0 ? '#f59e0b' : '#ef4444'}
+                                          />
+                                        ))}
+                                        <LabelList
+                                          dataKey="score"
+                                          position="top"
+                                          formatter={(value: number) => value.toFixed(1)}
+                                          style={{ fontSize: 12, fontWeight: 700, fill: '#111827' }}
+                                        />
+                                      </Bar>
+                                    </BarChart>
+                                  </ResponsiveContainer>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Comments Section */}
+                        {classAverages.comments.length > 0 && (
+                          <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                            <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-3">
+                              Comments ({classAverages.comments.length})
+                            </p>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {classAverages.comments.map((comment, idx) => (
+                                <div key={idx} className="flex gap-2 text-sm text-slate-700">
+                                  <span className="text-blue-500 font-bold flex-shrink-0">{idx + 1}.</span>
+                                  <p>{comment}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
 
                     {aiInsights && (
                       <div className="mb-8 bg-indigo-50 border-l-4 border-indigo-500 p-6 rounded-r-xl animate-in slide-in-from-top duration-500">
