@@ -201,7 +201,7 @@ const FacultyScorecard: React.FC<FacultyScorecardProps> = ({ data, searchQuery =
               {/* Score */}
               <div className="w-32 flex-shrink-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xl font-bold text-slate-800">{faculty.score.toFixed(1)}</span>
+                  <span className="text-xl font-bold text-slate-800">{faculty.score.toFixed(2)}</span>
                   <span className="text-xs text-slate-400">/5.0</span>
                 </div>
                 {getScoreBar(faculty.score)}
@@ -258,7 +258,7 @@ const FacultyScorecard: React.FC<FacultyScorecardProps> = ({ data, searchQuery =
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500">Overall Score</span>
-                        <span className="font-semibold text-slate-800">{faculty.score.toFixed(1)}/5.0</span>
+                        <span className="font-semibold text-slate-800">{faculty.score.toFixed(2)}/5.0</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500">Total Feedbacks</span>

@@ -295,7 +295,7 @@ const FilteredDataTable: React.FC<FilteredDataTableProps> = ({
                 </div>
                 <div className="text-right">
                   <p className={`text-4xl font-bold ${getRatingColor(overallAverage).split(' ')[0]}`}>
-                    {overallAverage.toFixed(1)}
+                    {overallAverage.toFixed(2)}
                   </p>
                   <p className={`text-sm font-medium ${getRatingColor(overallAverage).split(' ')[0]}`}>
                     {getRatingLabel(overallAverage)}
@@ -326,7 +326,7 @@ const FilteredDataTable: React.FC<FilteredDataTableProps> = ({
                         />
                       </div>
                       <span className={`text-lg font-bold px-2 py-1 rounded ${getRatingColor(item.average)}`}>
-                        {item.average.toFixed(1)}
+                        {item.average.toFixed(2)}
                       </span>
                     </div>
                   </div>

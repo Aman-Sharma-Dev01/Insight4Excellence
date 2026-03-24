@@ -1411,7 +1411,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               avg.average >= 4.0 ? 'Very Good' :
                 avg.average >= 3.5 ? 'Good' :
                   avg.average >= 3.0 ? 'Satisfactory' : 'Needs Improvement';
-            csv += `"${avg.question.replace(/"/g, '""')}","${avg.average.toFixed(1)}","${avg.count}","${rating}"\n`;
+            csv += `"${avg.question.replace(/"/g, '""')}","${avg.average.toFixed(2)}","${avg.count}","${rating}"\n`;
           });
 
           // Add overall average
@@ -1420,7 +1420,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             overallAverage >= 4.0 ? 'Very Good' :
               overallAverage >= 3.5 ? 'Good' :
                 overallAverage >= 3.0 ? 'Satisfactory' : 'Needs Improvement';
-          csv += `"OVERALL AVERAGE","${overallAverage.toFixed(1)}","","${overallRating}"\n`;
+          csv += `"OVERALL AVERAGE","${overallAverage.toFixed(2)}","","${overallRating}"\n`;
         }
 
         // Download
@@ -1703,14 +1703,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'Section': group.info['Section'],
             'Course Name': group.info['Course Name'],
             'Total Responses': group.rowCount,
-            'Overall Avg': overallAvg.toFixed(1),
-            ...(hasFiltersApplied ? { 'Weighted Avg': weightedAvg.toFixed(1) } : {}),
+            'Overall Avg': overallAvg.toFixed(2),
+            ...(hasFiltersApplied ? { 'Weighted Avg': weightedAvg.toFixed(2) } : {}),
             'Comments': formattedComments
           };
 
           // Add question averages
           questionColumns.forEach((qCol, i) => {
-            row[shortQuestionNames[i]] = questionAvgs[i].toFixed(1);
+            row[shortQuestionNames[i]] = questionAvgs[i].toFixed(2);
           });
 
           excelData.push(row);
@@ -1772,12 +1772,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           'Section': '',
           'Course Name': '',
           'Total Responses': grandTotalResponses,
-          'Overall Avg': grandOverallAvg.toFixed(1),
-          ...(hasFiltersApplied ? { 'Weighted Avg': grandWeightedAvg.toFixed(1) } : {}),
+          'Overall Avg': grandOverallAvg.toFixed(2),
+          ...(hasFiltersApplied ? { 'Weighted Avg': grandWeightedAvg.toFixed(2) } : {}),
           'Comments': ''
         };
         questionColumns.forEach((qCol, i) => {
-          summaryRow[shortQuestionNames[i]] = grandQuestionAvgs[i].toFixed(1);
+          summaryRow[shortQuestionNames[i]] = grandQuestionAvgs[i].toFixed(2);
         });
         excelData.push(summaryRow);
 
@@ -1956,10 +1956,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               row[`${prefix}Semester`] = cls.semester;
               row[`${prefix}Total Responses`] = cls.totalResponses;
               cls.questionAvgs.forEach((avg, qIdx) => {
-                row[`${prefix}${shortQuestionNames[qIdx]}`] = avg.toFixed(1);
+                row[`${prefix}${shortQuestionNames[qIdx]}`] = avg.toFixed(2);
               });
-              row[`${prefix}Overall Avg`] = cls.overallAvg.toFixed(1);
-              row[`${prefix}Weighted Avg`] = cls.weightedAvg.toFixed(1);
+              row[`${prefix}Overall Avg`] = cls.overallAvg.toFixed(2);
+              row[`${prefix}Weighted Avg`] = cls.weightedAvg.toFixed(2);
               const formattedComments = cls.comments.map((c, i) => `${i + 1}. ${c}`).join('\n');
               row[`${prefix}Comments`] = formattedComments;
             });
@@ -2606,33 +2606,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     {/* Faculty Averages Card - shown when filters are applied */}
                     {facultyAverages && (
                       <div className="mb-6 bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-xl border border-emerald-200 shadow-sm">
-                        {/* Header with faculty name */}
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="p-2 bg-emerald-500 rounded-lg">
-                            <Star className="w-5 h-5 text-white" />
+                        {/* Header with faculty name and section scores */}
+                        <div className="flex items-start md:items-center justify-between gap-4 mb-4 flex-col md:flex-row">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-500 rounded-lg shrink-0">
+                              <Star className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-emerald-800 text-lg flex items-center gap-3 flex-wrap">
+                                {facultyAverages.facultyName}
+                                <div className="flex items-center gap-0.5 bg-white/60 px-2 py-1 rounded-md border border-emerald-100">
+                                  {[1, 2, 3, 4, 5].map((star) => {
+                                    const roundedAvg = Number(facultyAverages.overallAvg.toFixed(2));
+                                    const fill = roundedAvg >= star;
+                                    const halfFill = !fill && roundedAvg >= star - 0.5;
+                                    if (fill) {
+                                      return <Star key={star} className="w-4 h-4 text-amber-400 fill-amber-400" />;
+                                    } else if (halfFill) {
+                                      return <StarHalf key={star} className="w-4 h-4 text-amber-400 fill-amber-400 md:text-amber-400 md:fill-amber-400" />;
+                                    } else {
+                                      return <Star key={star} className="w-4 h-4 text-slate-300" />;
+                                    }
+                                  })}
+                                  <span className="ml-1 text-sm font-bold text-slate-700">
+                                    {facultyAverages.overallAvg.toFixed(2)}
+                                  </span>
+                                </div>
+                              </h3>
+                              <p className="text-xs text-emerald-600 mt-1">Average scores based on filtered data</p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="font-bold text-emerald-800 text-lg flex items-center gap-3">
-                              {facultyAverages.facultyName}
-                              <div className="flex items-center gap-0.5 bg-white/60 px-2 py-1 rounded-md border border-emerald-100">
-                                {[1, 2, 3, 4, 5].map((star) => {
-                                  const roundedAvg = Number(facultyAverages.overallAvg.toFixed(1));
-                                  const fill = roundedAvg >= star;
-                                  const halfFill = !fill && roundedAvg >= star - 0.5;
-                                  if (fill) {
-                                    return <Star key={star} className="w-4 h-4 text-amber-400 fill-amber-400" />;
-                                  } else if (halfFill) {
-                                    return <StarHalf key={star} className="w-4 h-4 text-amber-400 fill-amber-400 md:text-amber-400 md:fill-amber-400" />;
-                                  } else {
-                                    return <Star key={star} className="w-4 h-4 text-slate-300" />;
-                                  }
-                                })}
-                                <span className="ml-1 text-sm font-bold text-slate-700">
-                                  {facultyAverages.overallAvg.toFixed(1)}
-                                </span>
+                          
+                          {/* Right Side Section Scores */}
+                          <div className="flex flex-wrap gap-2 text-center ml-0 md:ml-auto">
+                            {facultyAverages.sectionScores.map((sec, idx) => (
+                              <div key={idx} className="bg-emerald-100/60 rounded-lg px-3 py-1.5 border border-emerald-200/60 min-w-[70px]">
+                                <p className="text-emerald-800 text-[9px] uppercase tracking-wide mb-0.5 font-bold">{sec.section}</p>
+                                <p className="text-emerald-900 text-base font-black leading-none">{sec.avgScore.toFixed(2)}</p>
+                                <p className="text-emerald-700 text-[8px] uppercase font-semibold mt-0.5">Avg</p>
                               </div>
-                            </h3>
-                            <p className="text-xs text-emerald-600">Average scores based on filtered data</p>
+                            ))}
+                            <div className="bg-emerald-500 shadow-sm rounded-lg px-3 py-1.5 min-w-[70px]">
+                              <p className="text-emerald-50 text-[9px] uppercase tracking-wide mb-0.5 font-bold">Weighted</p>
+                              <p className="text-white text-base font-black leading-none">{facultyAverages.weightedAvg.toFixed(2)}</p>
+                              <p className="text-emerald-100 text-[8px] uppercase font-semibold mt-0.5">Avg</p>
+                            </div>
                           </div>
                         </div>
 
@@ -2689,7 +2707,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <div>
                                   <p className="text-emerald-100 text-sm font-semibold uppercase tracking-wide">Overall Average</p>
                                   <div className="flex items-end gap-2 mt-1">
-                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(2)}</span>
                                     <span className="text-emerald-200 text-xl mb-2">/5.0</span>
                                   </div>
                                   <p className="text-emerald-100 text-sm mt-2">
@@ -2701,27 +2719,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </div>
                                 {/* Section-wise scores */}
                                 <div className="flex flex-wrap gap-3 text-center">
-                                  {facultyAverages.sectionScores.length > 1 ? (
-                                    // Multiple sections: show each section's average
-                                    facultyAverages.sectionScores.map((sec, idx) => (
-                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
-                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
-                                        <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(1)}</p>
-                                        <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    // Single section: show overall average
-                                    <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                      <p className="text-white text-2xl font-bold">
-                                        {facultyAverages.overallAvg.toFixed(1)}
-                                      </p>
-                                      <p className="text-emerald-100 text-xs uppercase tracking-wide">Average</p>
+                                  {facultyAverages.sectionScores.map((sec, idx) => (
+                                    <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
+                                      <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
+                                      <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(2)}</p>
+                                      <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
                                     </div>
-                                  )}
+                                  ))}
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
                                     <p className="text-white text-2xl font-bold">
-                                      {facultyAverages.weightedAvg.toFixed(1)}
+                                      {facultyAverages.weightedAvg.toFixed(2)}
                                     </p>
                                     <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
@@ -2786,7 +2793,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         color === 'blue' ? 'text-blue-600' :
                                         color === 'amber' ? 'text-amber-600' : 'text-red-600'
                                       }`}>
-                                        {score.toFixed(1)}
+                                        {score.toFixed(2)}
                                       </p>
                                       <p className="text-xs text-slate-400">out of 5.0</p>
                                     </div>
@@ -2806,7 +2813,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <div>
                                   <h4 className="text-emerald-100 text-sm font-semibold uppercase tracking-wide mb-1">Overall Performance</h4>
                                   <div className="flex items-end gap-2">
-                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-5xl font-black text-white">{facultyAverages.overallAvg.toFixed(2)}</span>
                                     <span className="text-emerald-200 text-xl mb-2">/5.0</span>
                                   </div>
                                   <p className="text-emerald-100 text-sm mt-2">
@@ -2818,27 +2825,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </div>
                                 {/* Mini stats - Section-wise averages */}
                                 <div className="flex flex-wrap gap-3 text-center">
-                                  {facultyAverages.sectionScores.length > 1 ? (
-                                    // Multiple sections: show each section's average
-                                    facultyAverages.sectionScores.map((sec, idx) => (
-                                      <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
-                                        <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
-                                        <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(1)}</p>
-                                        <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    // Single section: show overall average
-                                    <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                      <p className="text-white text-2xl font-bold">
-                                        {facultyAverages.overallAvg.toFixed(1)}
-                                      </p>
-                                      <p className="text-emerald-100 text-xs uppercase tracking-wide">Average</p>
+                                  {facultyAverages.sectionScores.map((sec, idx) => (
+                                    <div key={idx} className="bg-white/20 rounded-lg px-3 py-2 backdrop-blur-sm min-w-[100px]">
+                                      <p className="text-emerald-100 text-[10px] uppercase tracking-wide mb-1 font-semibold">{sec.section}</p>
+                                      <p className="text-white text-xl font-bold">{sec.avgScore.toFixed(2)}</p>
+                                      <p className="text-emerald-100 text-[9px] uppercase">Avg</p>
                                     </div>
-                                  )}
+                                  ))}
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
                                     <p className="text-white text-2xl font-bold">
-                                      {facultyAverages.weightedAvg.toFixed(1)}
+                                      {facultyAverages.weightedAvg.toFixed(2)}
                                     </p>
                                     <p className="text-emerald-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
@@ -2908,7 +2904,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 <div className="flex items-center gap-2 mb-2">
                                                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
                                                   <span className="font-bold text-slate-800">{data.name}</span>
-                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
+                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(2)}</span>
                                                 </div>
                                                 <p className="text-xs text-slate-600 leading-relaxed mb-2">{data.fullName}</p>
                                                 <div className="flex items-center gap-2">
@@ -2930,7 +2926,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <LabelList
                                           dataKey="score"
                                           position="top"
-                                          formatter={(value: number) => value.toFixed(1)}
+                                          formatter={(value: number) => value.toFixed(2)}
                                           style={{ fontSize: 13, fontWeight: 700, fill: '#111827' }}
                                         />
                                       </Bar>
@@ -3056,7 +3052,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                               {classAverages.className}
                               <div className="flex items-center gap-0.5 bg-white/60 px-2 py-1 rounded-md border border-blue-100">
                                 {[1, 2, 3, 4, 5].map((star) => {
-                                  const roundedAvg = Number(classAverages.overallAvg.toFixed(1));
+                                  const roundedAvg = Number(classAverages.overallAvg.toFixed(2));
                                   const fill = roundedAvg >= star;
                                   const halfFill = !fill && roundedAvg >= star - 0.5;
                                   if (fill) {
@@ -3068,7 +3064,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   }
                                 })}
                                 <span className="ml-1 text-sm font-bold text-slate-700">
-                                  {classAverages.overallAvg.toFixed(1)}
+                                  {classAverages.overallAvg.toFixed(2)}
                                 </span>
                               </div>
                             </h3>
@@ -3129,7 +3125,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <div>
                                   <p className="text-blue-100 text-sm font-semibold uppercase tracking-wide">Class Average</p>
                                   <div className="flex items-end gap-2 mt-1">
-                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(2)}</span>
                                     <span className="text-blue-200 text-xl mb-2">/5.0</span>
                                   </div>
                                   <p className="text-blue-100 text-sm mt-2">
@@ -3141,11 +3137,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </div>
                                 <div className="flex flex-wrap gap-3 text-center">
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">{classAverages.overallAvg.toFixed(1)}</p>
+                                    <p className="text-white text-2xl font-bold">{classAverages.overallAvg.toFixed(2)}</p>
                                     <p className="text-blue-100 text-xs uppercase tracking-wide">Average</p>
                                   </div>
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(1)}</p>
+                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(2)}</p>
                                     <p className="text-blue-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
@@ -3206,7 +3202,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         color === 'blue' ? 'text-blue-600' :
                                         color === 'amber' ? 'text-amber-600' : 'text-red-600'
                                       }`}>
-                                        {score.toFixed(1)}
+                                        {score.toFixed(2)}
                                       </p>
                                       <p className="text-xs text-slate-400">out of 5.0</p>
                                     </div>
@@ -3253,13 +3249,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 qAvg >= 4.41 ? 'text-blue-700 bg-blue-100' :
                                                 qAvg >= 4.0 ? 'text-amber-700 bg-amber-100' : 'text-red-700 bg-red-100'
                                               }`}>
-                                                {qAvg.toFixed(1)}
+                                                {qAvg.toFixed(2)}
                                               </span>
                                             </td>
                                           ))}
                                           <td className="px-4 py-3 text-center">
                                             <span className={`text-sm font-black px-2 py-1 rounded-lg ${avgColor}`}>
-                                              {faculty.overallAvg.toFixed(1)}
+                                              {faculty.overallAvg.toFixed(2)}
                                             </span>
                                           </td>
                                           <td className="px-4 py-3 text-slate-600 max-w-[200px]">
@@ -3298,7 +3294,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 <div>
                                   <h4 className="text-blue-100 text-sm font-semibold uppercase tracking-wide mb-1">Class Performance</h4>
                                   <div className="flex items-end gap-2">
-                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(1)}</span>
+                                    <span className="text-5xl font-black text-white">{classAverages.overallAvg.toFixed(2)}</span>
                                     <span className="text-blue-200 text-xl mb-2">/5.0</span>
                                   </div>
                                   <p className="text-blue-100 text-sm mt-2">
@@ -3310,7 +3306,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                 </div>
                                 <div className="flex flex-wrap gap-3 text-center">
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
-                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(1)}</p>
+                                    <p className="text-white text-2xl font-bold">{classAverages.weightedAvg.toFixed(2)}</p>
                                     <p className="text-blue-100 text-xs uppercase tracking-wide">Weighted Avg</p>
                                   </div>
                                   <div className="bg-white/20 rounded-lg px-4 py-3 backdrop-blur-sm">
@@ -3364,7 +3360,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                                 <div className="flex items-center gap-2 mb-2">
                                                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }}></div>
                                                   <span className="font-bold text-slate-800">{data.name}</span>
-                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
+                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(2)}</span>
                                                 </div>
                                                 <p className="text-xs text-slate-600 leading-relaxed">{data.fullName}</p>
                                               </div>
@@ -3383,7 +3379,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <LabelList
                                           dataKey="score"
                                           position="top"
-                                          formatter={(value: number) => value.toFixed(1)}
+                                          formatter={(value: number) => value.toFixed(2)}
                                           style={{ fontSize: 13, fontWeight: 700, fill: '#111827' }}
                                         />
                                       </Bar>
@@ -3437,7 +3433,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                               <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 max-w-xs">
                                                 <div className="flex items-center gap-2 mb-2">
                                                   <span className="font-bold text-slate-800">{data.fullName}</span>
-                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(1)}</span>
+                                                  <span className="ml-auto text-lg font-black" style={{ color }}>{score.toFixed(2)}</span>
                                                 </div>
                                                 <p className="text-xs text-slate-500">{data.responses} responses</p>
                                               </div>
@@ -3456,7 +3452,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                         <LabelList
                                           dataKey="score"
                                           position="top"
-                                          formatter={(value: number) => value.toFixed(1)}
+                                          formatter={(value: number) => value.toFixed(2)}
                                           style={{ fontSize: 12, fontWeight: 700, fill: '#111827' }}
                                         />
                                       </Bar>
@@ -3536,7 +3532,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                   <tr key={idx} className="hover:bg-slate-50 transition">
                                     <td className="px-6 py-4 text-sm font-medium text-slate-700 max-w-xs">{q.question}</td>
                                     <td className="px-6 py-4">
-                                      <span className="text-sm font-bold text-slate-900">{q.score.toFixed(1)}</span>
+                                      <span className="text-sm font-bold text-slate-900">{q.score.toFixed(2)}</span>
                                       <span className="text-xs text-slate-400">/5.0</span>
                                     </td>
                                     <td className="px-6 py-4 text-sm text-slate-600">

@@ -88,7 +88,7 @@ const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
         <div className="bg-white p-3 rounded-lg shadow-lg border border-slate-200">
           <p className="font-semibold text-slate-800">{data.fullName || label}</p>
           <p className="text-sm text-indigo-600">
-            Score: <strong>{payload[0].value?.toFixed(1)}</strong>/5.0
+            Score: <strong>{payload[0].value?.toFixed(2)}</strong>/5.0
           </p>
           {data.feedbacks !== undefined && (
             <p className="text-xs text-slate-500">Feedbacks: {data.feedbacks}</p>
@@ -222,7 +222,7 @@ const AnalyticsCharts: React.FC<ChartsProps> = ({ data }) => {
                 <PolarAngleAxis dataKey="parameter" tick={{ fontSize: 12 }} />
                 <PolarRadiusAxis domain={[0, 5]} tick={{ fontSize: 10 }} />
                 <Tooltip
-                  formatter={(value: number) => [value.toFixed(1), 'Score']}
+                  formatter={(value: number) => [value.toFixed(2), 'Score']}
                   labelFormatter={(label) => radarData.find(d => d.parameter === label)?.fullName || label}
                 />
                 <Radar

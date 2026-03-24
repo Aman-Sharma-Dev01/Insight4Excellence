@@ -17,28 +17,25 @@ export const LIKERT_MAPPING: { [key: string]: number } = {
   '1': 1
 };
 
-// Rating thresholds for faculty scorecard
+// Rating thresholds for faculty scorecard (Quality Circle Scorecard Performance Band)
 export const RATING_THRESHOLDS = {
-  EXCELLENT: 4.5,
-  VERY_GOOD: 4.0,
-  GOOD: 3.5,
-  SATISFACTORY: 3.0,
-  NEEDS_IMPROVEMENT: 0
+  EXCEPTIONAL: 4.81,
+  OUTSTANDING: 4.41,
+  GOOD: 4.00,
+  AVERAGE: 0
 };
 
 export const getRatingLabel = (score: number): string => {
-  if (score >= RATING_THRESHOLDS.EXCELLENT) return 'Excellent';
-  if (score >= RATING_THRESHOLDS.VERY_GOOD) return 'Very Good';
+  if (score >= RATING_THRESHOLDS.EXCEPTIONAL) return 'Exceptional';
+  if (score >= RATING_THRESHOLDS.OUTSTANDING) return 'Outstanding';
   if (score >= RATING_THRESHOLDS.GOOD) return 'Good';
-  if (score >= RATING_THRESHOLDS.SATISFACTORY) return 'Satisfactory';
-  return 'Needs Improvement';
+  return 'Average';
 };
 
 export const getRatingColor = (score: number): string => {
-  if (score >= RATING_THRESHOLDS.EXCELLENT) return 'text-emerald-600 bg-emerald-100';
-  if (score >= RATING_THRESHOLDS.VERY_GOOD) return 'text-green-600 bg-green-100';
+  if (score >= RATING_THRESHOLDS.EXCEPTIONAL) return 'text-emerald-600 bg-emerald-100';
+  if (score >= RATING_THRESHOLDS.OUTSTANDING) return 'text-green-600 bg-green-100';
   if (score >= RATING_THRESHOLDS.GOOD) return 'text-blue-600 bg-blue-100';
-  if (score >= RATING_THRESHOLDS.SATISFACTORY) return 'text-amber-600 bg-amber-100';
   return 'text-red-600 bg-red-100';
 };
 

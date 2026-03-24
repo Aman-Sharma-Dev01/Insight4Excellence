@@ -699,7 +699,7 @@
         /* ─── PARAMETERS ─── */
         .params-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 1rem;
             margin-top: 3rem;
         }
@@ -800,6 +800,13 @@
         .rating-range {
             font-size: 0.75rem;
             color: var(--muted);
+        }
+
+        .rating-desc {
+            font-size: 0.7rem;
+            color: var(--muted);
+            line-height: 1.4;
+            margin-top: 2px;
         }
 
         /* ─── ABOUT ─── */
@@ -921,6 +928,17 @@
             grid-template-columns: 1fr 1fr;
             gap: 2rem;
             margin-top: 3rem;
+        }
+
+        .credits-grid-mentors {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 1.5rem;
+        }
+
+        .ca-mentor2 {
+            background: linear-gradient(135deg, #0891b2, #06b6d4);
         }
 
         .credit-card {
@@ -1146,6 +1164,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .credits-grid-mentors {
+                grid-template-columns: 1fr;
+            }
+
             .params-grid {
                 grid-template-columns: 1fr 1fr;
             }
@@ -1249,7 +1271,7 @@
                     <div class="chart-mock">
                         <div class="chart-label">Top Faculty Performance</div>
                         <div class="bar-row">
-                            <div class="bar-name">Dr. Sharma</div>
+                            <div class="bar-name">Ms. Tanvi Madan</div>
                             <div class="bar-track">
                                 <div class="bar-fill"
                                     style="width:92%;background:linear-gradient(90deg,#10b981,#34d399)"></div>
@@ -1257,7 +1279,7 @@
                             <div class="bar-score">4.6</div>
                         </div>
                         <div class="bar-row">
-                            <div class="bar-name">Prof. Gupta</div>
+                            <div class="bar-name">Mr. Virender</div>
                             <div class="bar-track">
                                 <div class="bar-fill"
                                     style="width:86%;background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
@@ -1265,7 +1287,7 @@
                             <div class="bar-score">4.3</div>
                         </div>
                         <div class="bar-row">
-                            <div class="bar-name">Dr. Verma</div>
+                            <div class="bar-name">Priya Gupta</div>
                             <div class="bar-track">
                                 <div class="bar-fill"
                                     style="width:80%;background:linear-gradient(90deg,#f97316,#fbbf24)"></div>
@@ -1273,7 +1295,7 @@
                             <div class="bar-score">4.0</div>
                         </div>
                         <div class="bar-row">
-                            <div class="bar-name">Ms. Singh</div>
+                            <div class="bar-name">Dhananjay Singh</div>
                             <div class="bar-track">
                                 <div class="bar-fill"
                                     style="width:74%;background:linear-gradient(90deg,#8b5cf6,#a78bfa)"></div>
@@ -1290,7 +1312,7 @@
     <div class="stats-strip">
         <div class="stats-strip-inner">
             <div class="stat-item">
-                <div class="stat-num">7<span>+</span></div>
+                <div class="stat-num">5<span>+</span></div>
                 <div class="stat-desc">Feedback Parameters Analysed</div>
             </div>
             <div class="stat-item">
@@ -1308,55 +1330,7 @@
         </div>
     </div>
 
-    <!-- ═══ FEATURES ═══ -->
-    <section id="features">
-        <div class="section-inner">
-            <div class="text-center reveal">
-                <span class="section-label">Platform Features</span>
-                <h2 class="section-title">Everything You Need for Quality Analytics</h2>
-                <p class="section-desc">A comprehensive toolkit designed to make faculty feedback analysis effortless,
-                    insightful, and actionable for academic administrators.</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card c1 reveal">
-                    <div class="feature-icon ic1">📊</div>
-                    <h3>Smart Data Filtering</h3>
-                    <p>Filter feedback data dynamically by school, department, semester, section, faculty, and course.
-                        Multi-select filters with real-time results powered by persistent state management.</p>
-                </div>
-                <div class="feature-card c2 reveal">
-                    <div class="feature-icon ic2">🏆</div>
-                    <h3>Faculty Scorecards</h3>
-                    <p>Generate individual faculty performance scorecards with parameter-wise breakdown, section-wise
-                        scores, course-wise analysis, and overall performance rating badges.</p>
-                </div>
-                <div class="feature-card c3 reveal">
-                    <div class="feature-icon ic3">📈</div>
-                    <h3>Interactive Analytics Charts</h3>
-                    <p>Visualize trends and patterns through rich charts — department-wise comparisons, time trends,
-                        question-score distributions, and top/bottom performer rankings.</p>
-                </div>
-                <div class="feature-card c4 reveal">
-                    <div class="feature-icon ic4">🤖</div>
-                    <h3>AI-Powered Insights</h3>
-                    <p>Generate comprehensive narrative reports with Google Gemini AI. Get intelligent interpretations
-                        of feedback data with actionable recommendations automatically.</p>
-                </div>
-                <div class="feature-card c5 reveal">
-                    <div class="feature-icon ic5">🔗</div>
-                    <h3>Google Sheets Integration</h3>
-                    <p>Connect directly to Google Sheets feedback data. Add multiple sheet sources, validate URLs in
-                        real-time, and switch between datasets seamlessly from the sidebar.</p>
-                </div>
-                <div class="feature-card c6 reveal">
-                    <div class="feature-icon ic6">📥</div>
-                    <h3>Export & Reports</h3>
-                    <p>Export filtered data as XLSX or CSV with computed averages appended. Download faculty reports,
-                        share data with stakeholders, and maintain compliance records.</p>
-                </div>
-            </div>
-        </div>
-    </section>
+
 
     <!-- ═══ HOW IT WORKS ═══ -->
     <section id="how-it-works" class="how-bg">
@@ -1403,91 +1377,73 @@
         <div class="section-inner">
             <div class="text-center reveal">
                 <span class="section-label">Evaluation Framework</span>
-                <h2 class="section-title">7 Core Feedback Parameters</h2>
+                <h2 class="section-title">5 Core Feedback Parameters</h2>
                 <p class="section-desc">Comprehensive evaluation dimensions that capture every aspect of faculty
                     teaching performance as rated by students.</p>
             </div>
             <div class="params-grid reveal">
                 <div class="param-card">
                     <div class="param-icon">⏰</div>
-                    <div class="param-name">Punctuality</div>
-                    <div class="param-desc">Class starts and ends on schedule as per timetable</div>
-                </div>
-                <div class="param-card">
-                    <div class="param-icon">🗓️</div>
-                    <div class="param-name">Time Management</div>
-                    <div class="param-desc">Adequate time allocation for all course content</div>
+                    <div class="param-name">Q1 — Punctuality & Time Management</div>
+                    <div class="param-desc">Class starts and ends on time; sufficient time is allocated for explanations, examples, and interaction.</div>
                 </div>
                 <div class="param-card">
                     <div class="param-icon">📚</div>
-                    <div class="param-name">Preparedness</div>
-                    <div class="param-desc">Faculty arrives well-prepared for each lecture</div>
+                    <div class="param-name">Q2 — Subject Mastery & Preparedness</div>
+                    <div class="param-desc">Faculty is well-prepared, confident, and demonstrates strong understanding of the subject matter.</div>
                 </div>
                 <div class="param-card">
                     <div class="param-icon">🎙️</div>
-                    <div class="param-name">Content Delivery</div>
-                    <div class="param-desc">Confidence and clarity in presenting subject matter</div>
+                    <div class="param-name">Q3 — Content Delivery & Innovation</div>
+                    <div class="param-desc">Content is delivered clearly and confidently, with effective use of technology and visuals, supported by relevant examples and real-life applications; integrates pedagogical innovations.</div>
                 </div>
                 <div class="param-card">
                     <div class="param-icon">💬</div>
-                    <div class="param-name">Communication</div>
-                    <div class="param-desc">Use of respectful, clear, and simple language</div>
+                    <div class="param-name">Q4 — Communication & Clarity</div>
+                    <div class="param-desc">Faculty uses respectful, clear, and simple language with an appropriate tone and pace; explanations are easy to understand and follow.</div>
                 </div>
                 <div class="param-card">
                     <div class="param-icon">🙋</div>
-                    <div class="param-name">Engagement</div>
-                    <div class="param-desc">Encouraging questions, discussions, and participation</div>
-                </div>
-                <div class="param-card">
-                    <div class="param-icon">✅</div>
-                    <div class="param-name">Feedback Quality</div>
-                    <div class="param-desc">Quality of feedback on assignments and projects</div>
-                </div>
-                <div class="param-card">
-                    <div class="param-icon">⭐</div>
-                    <div class="param-name">Overall Rating</div>
-                    <div class="param-desc">Aggregate performance computed across all parameters</div>
+                    <div class="param-name">Q5 — Student Engagement</div>
+                    <div class="param-desc">Faculty encourages questions, discussions, and interaction to keep students actively involved in the learning process.</div>
                 </div>
             </div>
 
             <div class="text-center reveal" style="margin-top:3.5rem">
-                <span class="section-label">Rating Scale</span>
-                <h3 class="section-title" style="font-size:1.5rem">5-Point Likert Scale</h3>
+                <span class="section-label">Performance Band</span>
+                <h3 class="section-title" style="font-size:1.5rem">Quality Circle Scorecard Scale</h3>
             </div>
             <div class="rating-scale reveal">
                 <div class="rating-badge">
-                    <div class="rating-circle r1">5</div>
+                    <div class="rating-circle r1">★</div>
                     <div>
-                        <div class="rating-label">Excellent</div>
-                        <div class="rating-range">≥ 4.5</div>
+                        <div class="rating-label">Exceptional</div>
+                        <div class="rating-range">4.81 – 5.00</div>
+                        <div class="rating-desc">Flawless Execution; Exemplary Contribution</div>
                     </div>
                 </div>
                 <div class="rating-badge">
-                    <div class="rating-circle r2">4</div>
+                    <div class="rating-circle r2">◆</div>
                     <div>
-                        <div class="rating-label">Very Good</div>
-                        <div class="rating-range">≥ 4.0</div>
+                        <div class="rating-label">Outstanding</div>
+                        <div class="rating-range">4.41 – 4.80</div>
+                        <div class="rating-desc">High Level Performance with significant measurable impact</div>
                     </div>
                 </div>
                 <div class="rating-badge">
-                    <div class="rating-circle r3">3</div>
+                    <div class="rating-circle r3">●</div>
                     <div>
                         <div class="rating-label">Good</div>
-                        <div class="rating-range">≥ 3.5</div>
+                        <div class="rating-range">4.00 – 4.40</div>
+                        <div class="rating-desc">Solidly meets requirements; Consistently high quality</div>
                     </div>
                 </div>
                 <div class="rating-badge">
-                    <div class="rating-circle r4">2</div>
+                    <div class="rating-circle r4">○</div>
                     <div>
-                        <div class="rating-label">Satisfactory</div>
-                        <div class="rating-range">≥ 3.0</div>
-                    </div>
-                </div>
-                <div class="rating-badge">
-                    <div class="rating-circle r5">1</div>
-                    <div>
-                        <div class="rating-label">Needs Improvement</div>
-                        <div class="rating-range">&lt; 3.0</div>
+                        <div class="rating-label">Average</div>
+                        <div class="rating-range">1.00 – 3.99</div>
+                        <div class="rating-desc">Needs Improvement</div>
                     </div>
                 </div>
             </div>
@@ -1593,8 +1549,8 @@
                 <p class="section-desc">QAA–Insight4Excellence was developed as an academic initiative under the
                     guidance of expert mentorship at Manav Rachna University.</p>
             </div>
-            <div class="credits-grid reveal">
-                <div class="credit-card">
+            <div class="credits-grid" style="grid-template-columns:1fr;max-width:600px;margin:3rem auto 0">
+                <div class="credit-card reveal">
                     <div class="credit-avatar ca-dev">AS</div>
                     <div>
                         <div class="credit-role">🛠️ Developer</div>
@@ -1607,6 +1563,8 @@
                         </div>
                     </div>
                 </div>
+            </div>
+            <div class="credits-grid-mentors reveal">
                 <div class="credit-card">
                     <div class="credit-avatar ca-mentor">UP</div>
                     <div>
@@ -1617,6 +1575,18 @@
                             <strong style="color:#7c3aed">Manav Rachna University</strong><br>
                             Provided academic guidance, domain expertise in quality assurance, and mentorship throughout
                             the project development.
+                        </div>
+                    </div>
+                </div>
+                <div class="credit-card">
+                    <div class="credit-avatar ca-mentor2">DA</div>
+                    <div>
+                        <div class="credit-role">🎓 Mentor</div>
+                        <div class="credit-name">Dr. Deepa Arora</div>
+                        <div class="credit-detail">
+                            Professor & Director-QAA<br>
+                            <strong style="color:#0891b2">Manav Rachna University</strong><br>
+                            Provided strategic guidance on quality assurance frameworks and academic excellence standards.
                         </div>
                     </div>
                 </div>
@@ -1663,7 +1633,7 @@
                 Developed by <strong style="color:rgba(255,255,255,0.6)">Aman Sharma</strong>, B.Tech CSE Student, Manav
                 Rachna University<br>
                 Mentored by <strong style="color:rgba(255,255,255,0.6)">Dr. Urmila Pillania</strong>, Associate
-                Professor, Manav Rachna University<br><br>
+                Professor & <strong style="color:rgba(255,255,255,0.6)">Dr. Deepa Arora</strong>, Professor & Director-QAA, Manav Rachna University<br><br>
                 © 2025 QAA–Insight4Excellence · All rights reserved ·
                 <a href="index.html">Sign In</a>
             </p>
