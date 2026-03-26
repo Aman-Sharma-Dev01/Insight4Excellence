@@ -85,7 +85,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
         <div className="bg-indigo-900 p-8 text-center text-white" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #2557a7 100%)' }}>
           <div className="mb-3">
-            <a href="/landing.html" className="inline-flex items-center gap-1 text-xs text-indigo-200 hover:text-white transition" style={{ textDecoration: 'none' }}>
+            <a href="/" className="inline-flex items-center gap-1 text-xs text-indigo-200 hover:text-white transition" style={{ textDecoration: 'none' }}>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
               Back to Home
             </a>
