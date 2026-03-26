@@ -5,12 +5,12 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
-    // Multi-page app: landing.html at root, React app at /app/
+    // Multi-page app: landing.html at root (/), React app at /index.html
     root: '.',
     build: {
       rollupOptions: {
         input: {
-          landing: path.resolve(__dirname, 'landing.html'),
+          main: path.resolve(__dirname, 'landing.html'),
           app: path.resolve(__dirname, 'index.html'),
         }
       }
@@ -18,17 +18,16 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
-      // Serve landing.html at / by default
-      open: '/landing.html',
+      open: '/',
     },
     plugins: [
       react(),
-      // Redirect / → /landing.html in dev server
+      // Serve landing.html when visiting / (root)
       {
-        name: 'redirect-root-to-landing',
+        name: 'serve-landing-at-root',
         configureServer(server: any) {
           server.middlewares.use((req: any, _res: any, next: any) => {
-            if (req.url === '/') {
+            if (req.url === '/' || req.url === '') {
               req.url = '/landing.html';
             }
             next();
