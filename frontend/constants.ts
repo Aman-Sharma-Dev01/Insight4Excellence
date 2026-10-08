@@ -69,7 +69,7 @@ export const COLUMN_MAPPINGS: { [key: string]: string } = {
 
 // Backend API URL - Change this based on your deployment
 // For local development with Node.js backend:
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// export const API_BASE_URL =  'http://localhost:5000/api';
 // For Google Apps Script deployment (uncomment and use if not using Node.js backend):
 // export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';

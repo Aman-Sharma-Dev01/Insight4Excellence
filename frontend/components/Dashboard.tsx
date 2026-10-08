@@ -431,7 +431,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           const findHeader = (patterns: string[]): string | null => {
             return headers.find(h => patterns.some(p => h.toLowerCase().includes(p.toLowerCase()))) || null;
           };
-
           const facultyCol = findHeader(['faculty', 'teacher']);
 
           // Collect exact metadata column names to exclude
@@ -1481,18 +1480,60 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         const findHeader = (patterns: string[]): string | null => {
           return headers.find(h => patterns.some(p => h.toLowerCase().includes(p.toLowerCase()))) || null;
         };
+        const getRowValue = (row: FilteredDataRow, column: string | null): string => {
+          if (!column) return '';
+
+          const directValue = row[column];
+          if (directValue !== null && directValue !== undefined && String(directValue).trim() !== '') {
+            return String(directValue).trim();
+          }
+
+          const normalizedColumn = column.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const matchingKey = Object.keys(row).find(key =>
+            key.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedColumn
+          );
+          const matchingValue = matchingKey ? row[matchingKey] : '';
+          return matchingValue !== null && matchingValue !== undefined ? String(matchingValue).trim() : '';
+        };
+        const getFirstNonEmptyRowValue = (row: FilteredDataRow, columns: string[]): string => {
+          const values = columns
+            .map(column => getRowValue(row, column))
+            .filter(Boolean);
+          return [...new Set(values)].join(' / ');
+        };
+        const getFilteredMetadata = (patterns: string[]): string => {
+          const values = Object.entries(filterState)
+            .filter(([key, selectedValues]) =>
+              patterns.some(pattern => key.toLowerCase().includes(pattern)) &&
+              Array.isArray(selectedValues) &&
+              selectedValues.length > 0
+            )
+            .flatMap(([, selectedValues]) => selectedValues as string[]);
+          return [...new Set(values.map(value => String(value).trim()).filter(Boolean))].join(' / ');
+        };
+        const combineClassMetadata = (info: Record<string, string>): string =>
+          [info['Department'], info['Section'], info['Semester']]
+            .map(value => value.trim())
+            .filter(Boolean)
+            .filter((value, index, values) => values.indexOf(value) === index)
+            .join(' / ');
 
         const facultyCol = findHeader(['faculty', 'teacher']);
         const schoolCol = findHeader(['school']);
         const deptCol = findHeader(['department']);
         const semesterCol = findHeader(['semester']);
-        const sectionCol = findHeader(['section', 'class-section']);
+        // A merged Google Sheet can contain one Class - Section column per
+        // source form. Read all of them instead of dropping all but the first.
+        const sectionCols = headers.filter(header => {
+          const headerLower = header.toLowerCase();
+          return headerLower.includes('section') || headerLower.includes('class-section');
+        });
         const courseCol = findHeader(['course']);
         const remarkCol = findHeader(['remark', 'comment', 'feedback', 'suggestion']);
 
         // Collect exact metadata column names to exclude
         const metadataColumns = new Set<string>(
-          [facultyCol, schoolCol, deptCol, semesterCol, sectionCol, courseCol, remarkCol]
+          [facultyCol, schoolCol, deptCol, semesterCol, ...sectionCols, courseCol, remarkCol]
             .filter((col): col is string => col !== null)
             .map(col => col.toLowerCase())
         );
@@ -1574,13 +1615,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         }> = {};
 
         data.forEach(row => {
-          const originalFaculty = facultyCol ? String(row[facultyCol] || '').trim() : 'Unknown';
+          const originalFaculty = getRowValue(row, facultyCol) || 'Unknown';
           if (!originalFaculty) return;
 
           // Get canonical name for grouping
           const faculty = getCanonicalFacultyName(originalFaculty);
           // Get section for grouping
-          const section = sectionCol ? String(row[sectionCol] || '').trim() : '';
+          const section = getFirstNonEmptyRowValue(row, sectionCols) || getFilteredMetadata(['section', 'class']);
+          const school = getRowValue(row, schoolCol) || getFilteredMetadata(['school']);
+          const department = getRowValue(row, deptCol) || getFilteredMetadata(['department', 'dept']);
+          const semester = getRowValue(row, semesterCol) || getFilteredMetadata(['semester', 'sem']);
 
           // Create a composite key for grouping by both faculty and section
           const groupKey = `${faculty}|${section}`;
@@ -1589,17 +1633,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             facultyGroups[groupKey] = {
               info: {
                 'Faculty Name': faculty,
-                'School': schoolCol ? String(row[schoolCol] || '') : '',
-                'Department': deptCol ? String(row[deptCol] || '') : '',
-                'Semester': semesterCol ? String(row[semesterCol] || '') : '',
+                'School': school,
+                'Department': department,
+                'Semester': semester,
                 'Section': section,
-                'Course Name': courseCol ? String(row[courseCol] || '') : ''
+                'Course Name': getRowValue(row, courseCol)
               },
               rowCount: 0,
               questionTotals: {},
               comments: []
             };
           }
+
+          // Metadata cells may be sparse in the source sheet. Keep the first
+          // non-empty value seen for each grouped export row.
+          const groupInfo = facultyGroups[groupKey].info;
+          const metadataValues: Record<string, string> = {
+            'School': school,
+            'Department': department,
+            'Semester': semester,
+            'Section': section,
+            'Course Name': getRowValue(row, courseCol)
+          };
+          Object.entries(metadataValues).forEach(([key, value]) => {
+            if (!groupInfo[key] && value) {
+              groupInfo[key] = value;
+            }
+          });
 
           // Increment count for this specific faculty+section combination
           facultyGroups[groupKey].rowCount++;
@@ -1634,7 +1694,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
         // Headers for the main data (conditionally include Weighted Avg only when filters applied)
         const mainHeaders = [
-          'S.No', 'Faculty Name', 'School', 'Department', 'Semester', 'Section', 'Course Name', 'Total Responses',
+          'S.No', 'Faculty Name', 'School', 'Department / Section / Semester', 'Course Name', 'Total Responses',
           ...shortQuestionNames, 'Overall Avg', ...(hasFiltersApplied ? ['Weighted Avg'] : []), 'Comments'
         ];
 
@@ -1698,9 +1758,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             'S.No': serialNo++,
             'Faculty Name': group.info['Faculty Name'],
             'School': group.info['School'],
-            'Department': group.info['Department'],
-            'Semester': group.info['Semester'],
-            'Section': group.info['Section'],
+            'Department / Section / Semester': combineClassMetadata(group.info),
             'Course Name': group.info['Course Name'],
             'Total Responses': group.rowCount,
             'Overall Avg': overallAvg.toFixed(2),
@@ -1767,9 +1825,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           'S.No': '',
           'Faculty Name': 'AVERAGE SUMMARY',
           'School': '',
-          'Department': '',
-          'Semester': '',
-          'Section': '',
+          'Department / Section / Semester': '',
           'Course Name': '',
           'Total Responses': grandTotalResponses,
           'Overall Avg': grandOverallAvg.toFixed(2),
@@ -1808,9 +1864,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
           { wch: 5 },  // S.No
           { wch: 25 }, // Faculty Name
           { wch: 20 }, // School
-          { wch: 20 }, // Department
-          { wch: 10 }, // Semester
-          { wch: 10 }, // Section
+          { wch: 28 }, // Department / Section / Semester
           { wch: 25 }, // Course Name
           ...shortQuestionNames.map(() => ({ wch: 8 })), // Questions
           { wch: 10 }, // Overall Avg
